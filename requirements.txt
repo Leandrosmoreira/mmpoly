@@ -1,0 +1,9 @@
+# GabaBook MM Bot dependencies
+py-clob-client>=0.15.0
+py-order-utils>=0.3.0
+aiohttp>=3.9.0
+pyyaml>=6.0
+structlog>=23.0
+web3>=6.0
+eth-account>=0.10.0
+python-dotenv>=1.0.0

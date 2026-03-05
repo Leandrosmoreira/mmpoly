@@ -1,0 +1,34 @@
+# === GabaBook Market Configuration ===
+#
+# Mode: "auto" uses the market scanner to discover markets automatically.
+#       "manual" uses the static list below.
+#
+# For auto mode, configure which coins and intervals to scan.
+# For manual mode, fill in condition_id and token IDs.
+
+mode: auto
+
+# === Auto Scanner Config ===
+scanner:
+  coins:
+    - btc
+    # - eth          # uncomment to add ETH
+    # - sol          # uncomment to add SOL
+
+  intervals:
+    - 15m
+    # - 5m           # uncomment for 5-min markets
+    # - 1m           # uncomment for 1-min markets (very fast, risky)
+
+  scan_interval_s: 30    # how often to check for new markets
+  min_liquidity: 1000    # skip markets with < $1000 liquidity
+  min_time_remaining: 60 # skip markets with < 60s remaining
+
+# === Manual Markets (used when mode: manual) ===
+markets: []
+  # - name: "btc-15m"
+  #   condition_id: "0x..."
+  #   token_up: "TOKEN_YES_ID"
+  #   token_down: "TOKEN_NO_ID"
+  #   end_ts: 1709567890
+  #   enabled: true

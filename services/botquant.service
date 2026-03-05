@@ -1,0 +1,32 @@
+[Unit]
+Description=GabaBook MM Bot (Polymarket)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botquant
+Group=botquant
+WorkingDirectory=/opt/gababot
+ExecStart=/opt/gababot/venv/bin/python -m bot.supervisor
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gababot
+
+# Environment
+EnvironmentFile=/opt/gababot/.env
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gababot/logs
+
+# Resource limits
+LimitNOFILE=65535
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

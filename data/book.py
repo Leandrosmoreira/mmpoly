@@ -1,0 +1,88 @@
+"""Order book cache — maintains top-of-book per token.
+
+Handles both full snapshots (REST) and incremental updates (WS).
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Optional
+
+from core.types import TopOfBook
+
+
+class BookCache:
+    """Order book cache. Single-thread async safe."""
+
+    def __init__(self):
+        self._books: dict[str, TopOfBook] = {}
+
+    def update(self, token_id: str, bids: list, asks: list):
+        """Update book from WS message.
+
+        Polymarket WS can send full or partial updates.
+        bids/asks format: [{"price": "0.55", "size": "100"}, ...]
+        A size of "0" means remove that level.
+        """
+        book = self._books.get(token_id)
+        if book is None:
+            book = TopOfBook(token_id=token_id)
+            self._books[token_id] = book
+
+        # Filter out zero-size levels (removals)
+        valid_bids = [b for b in bids if float(b.get("size", 0)) > 0]
+        valid_asks = [a for a in asks if float(a.get("size", 0)) > 0]
+
+        if valid_bids:
+            # Sort descending by price, take best
+            sorted_bids = sorted(valid_bids, key=lambda x: float(x["price"]), reverse=True)
+            book.best_bid = float(sorted_bids[0]["price"])
+            book.best_bid_sz = float(sorted_bids[0]["size"])
+        elif bids:
+            # All bids were removals — keep old bid if we have one
+            pass
+        # If no bids at all in message, keep existing
+
+        if valid_asks:
+            sorted_asks = sorted(valid_asks, key=lambda x: float(x["price"]))
+            book.best_ask = float(sorted_asks[0]["price"])
+            book.best_ask_sz = float(sorted_asks[0]["size"])
+        elif asks:
+            pass
+
+        book.ts = time.time()
+
+    def update_from_snapshot(self, token_id: str, data: dict):
+        """Update from REST snapshot (full book replacement).
+
+        data format: {"bids": [...], "asks": [...]}
+        """
+        bids = data.get("bids", [])
+        asks = data.get("asks", [])
+
+        book = TopOfBook(token_id=token_id)
+
+        valid_bids = [b for b in bids if float(b.get("size", 0)) > 0]
+        valid_asks = [a for a in asks if float(a.get("size", 0)) > 0]
+
+        if valid_bids:
+            sorted_bids = sorted(valid_bids, key=lambda x: float(x["price"]), reverse=True)
+            book.best_bid = float(sorted_bids[0]["price"])
+            book.best_bid_sz = float(sorted_bids[0]["size"])
+
+        if valid_asks:
+            sorted_asks = sorted(valid_asks, key=lambda x: float(x["price"]))
+            book.best_ask = float(sorted_asks[0]["price"])
+            book.best_ask_sz = float(sorted_asks[0]["size"])
+
+        book.ts = time.time()
+        self._books[token_id] = book
+
+    def get(self, token_id: str) -> Optional[TopOfBook]:
+        return self._books.get(token_id)
+
+    def is_stale(self, token_id: str, max_age_ms: float) -> bool:
+        book = self._books.get(token_id)
+        if book is None:
+            return True
+        return book.is_stale(max_age_ms)

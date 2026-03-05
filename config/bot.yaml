@@ -1,0 +1,56 @@
+# GabaBook MM Bot — Configuration
+# All prices in USDC, sizes in shares
+
+# === Grid Dinamico ===
+grid:
+  max_levels: 5                # niveis por lado por token
+  level_spacing_ticks: 2       # 2 ticks (0.02) entre niveis
+  level_size: 5                # 5 shares por nivel (minimo Polymarket)
+  early_buy_levels: 1          # EARLY: 1 nivel de compra (cauteloso)
+  early_sell_levels: 1         # EARLY: 1 nivel de venda
+  mid_buy_levels: 5            # MID: grid completo
+  mid_sell_levels: 5
+
+price_move_threshold: 0.01     # cancela nivel se preco mudou >= 1 tick
+
+# === Quoting ===
+tick: 0.01
+order_size: 5                  # compatibilidade (grid usa grid.level_size)
+min_spread: 0.04               # spread minimo para entrar (4 ticks = 0.04)
+quote_ttl_ms: 8000             # TTL das ordens: 8s (grid e menos agressivo em cancel)
+skew_factor: 2.0               # fator de skew de inventario
+
+# === Inventory ===
+net_soft_limit: 10             # inicia skew com 10 shares liquidos
+net_hard_limit: 25             # para de cotar com 25 shares liquidos
+max_position: 50               # max shares por token (5 niveis x 5 shares x 2 = 50)
+
+# === Orders ===
+max_orders_per_side: 10        # 5 niveis BUY + 5 SELL por token
+max_cancel_per_min: 60
+
+# === Time Regimes (segundos restantes) ===
+t_early: 300                   # > 5min: 1 nivel, spread largo
+t_mid: 60                      # 1-5min: 5 niveis, grid completo
+t_late: 30                     # 30s-1min: so SELL para desovar
+t_exit: 15                     # < 15s: cancela tudo, sai
+
+# === Pair / Arb ===
+min_pair_edge: 0.02
+fee_buffer: 0.02
+max_pair_size: 10
+min_pair_size: 2
+
+# === Risk ===
+max_daily_loss: -5.0           # USDC, aciona kill switch
+stale_book_ms: 5000            # idade maxima do book
+max_rejects: 10
+max_consecutive_losses: 5
+cooldown_s: 1800               # 30min de cooldown apos kill
+
+# === Logging ===
+log_dir: "logs"
+snapshot_interval_s: 30
+
+# === Mode ===
+dry_run: true                  # true = log intents apenas, sem ordens reais
