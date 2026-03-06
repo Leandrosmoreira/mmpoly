@@ -52,13 +52,24 @@ class BookCache:
 
         book.ts = time.time()
 
-    def update_from_snapshot(self, token_id: str, data: dict):
+    def update_from_snapshot(self, token_id: str, data):
         """Update from REST snapshot (full book replacement).
 
-        data format: {"bids": [...], "asks": [...]}
+        Aceita dict {"bids": [...], "asks": [...]}
+        ou objeto OrderBookSummary do py_clob_client (com .bids/.asks).
         """
-        bids = data.get("bids", [])
-        asks = data.get("asks", [])
+        # Normaliza para listas de dicts {"price": str, "size": str}
+        if isinstance(data, dict):
+            raw_bids = data.get("bids", [])
+            raw_asks = data.get("asks", [])
+            bids = raw_bids
+            asks = raw_asks
+        else:
+            # OrderBookSummary: atributos .bids/.asks com objetos .price/.size
+            raw_bids = getattr(data, "bids", []) or []
+            raw_asks = getattr(data, "asks", []) or []
+            bids = [{"price": str(b.price), "size": str(b.size)} for b in raw_bids]
+            asks = [{"price": str(a.price), "size": str(a.size)} for a in raw_asks]
 
         book = TopOfBook(token_id=token_id)
 
