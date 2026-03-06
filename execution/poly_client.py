@@ -209,10 +209,16 @@ class PolyClient:
         try:
             resp = await asyncio.to_thread(self._client.cancel, order_id)
             # Polymarket retorna {'canceled': [order_id], 'not_canceled': {}}
-            # (nao tem campo 'success')
             if isinstance(resp, dict):
                 canceled_list = resp.get("canceled", [])
+                not_canceled = resp.get("not_canceled", {})
                 success = (order_id in canceled_list) or bool(resp.get("success", False))
+                # "already canceled or matched" = order is gone, treat as success
+                if not success and not_canceled:
+                    reason = str(not_canceled).lower()
+                    if "matched" in reason or "already" in reason or "not found" in reason:
+                        logger.info("order_already_gone", order_id=order_id, reason=reason)
+                        return True
             else:
                 success = bool(resp)
             if success:
@@ -221,6 +227,11 @@ class PolyClient:
                 logger.warning("cancel_failed", order_id=order_id, resp=resp)
             return success
         except Exception as e:
+            err_msg = str(e).lower()
+            # API exception for already-gone orders
+            if "not found" in err_msg or "matched" in err_msg or "already" in err_msg:
+                logger.info("order_already_gone", order_id=order_id, error=str(e))
+                return True
             logger.error("cancel_error", order_id=order_id, error=str(e))
             return False
 
