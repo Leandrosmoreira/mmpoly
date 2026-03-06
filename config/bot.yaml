@@ -51,7 +51,7 @@ min_pair_size: 2
 
 # === Risk ===
 max_daily_loss: -5.0           # USDC, aciona kill switch
-stale_book_ms: 5000            # idade maxima do book
+stale_book_ms: 60000           # idade maxima do book (60s — mercados BTC 15m tem atividade intermitente)
 max_rejects: 10
 max_consecutive_losses: 5
 cooldown_s: 1800               # 30min de cooldown apos kill
