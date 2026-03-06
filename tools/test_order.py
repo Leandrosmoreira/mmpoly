@@ -197,12 +197,13 @@ async def run_test(live: bool):
     print(f"  side         : {live_order.side}")
     print(f"  placed_at    : {time.strftime('%H:%M:%S', time.localtime(live_order.placed_at))}")
 
-    # 7. Espera 3 segundos
-    _print_section("6. Aguardando 3s antes de cancelar...")
-    for i in range(3, 0, -1):
-        print(f"  {i}...", end="\r", flush=True)
+    # 7. Espera 15 segundos (tempo para ver a ordem no site)
+    _print_section("6. Aguardando 15s antes de cancelar...")
+    print("  >>> Abra o Polymarket e veja a ordem no order book! <<<")
+    for i in range(15, 0, -1):
+        print(f"  Cancelando em {i}s...  ", end="\r", flush=True)
         await asyncio.sleep(1)
-    print("  Cancelando agora!      ")
+    print("  Cancelando agora!                    ")
 
     # 8. CANCELA ORDEM — IDENTICO ao bot/main.py
     _print_section("7. Cancelando ordem...")
