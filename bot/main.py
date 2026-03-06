@@ -19,7 +19,12 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load .env from project root
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_root, ".env"))
+# Fallback: bookpoly .env (API credentials)
+_bookpoly_env = os.path.join(_root, "..", "bookpoly", ".env")
+if os.path.isfile(_bookpoly_env):
+    load_dotenv(_bookpoly_env)
 
 from bot.logger import setup_logging, log_snapshot
 from core.types import BotConfig, BotState, Direction, Fill, GridConfig, IntentType, MarketState, Side
