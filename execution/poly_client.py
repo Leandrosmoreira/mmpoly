@@ -95,7 +95,16 @@ class PolyClient:
 
         if not api_key:
             try:
-                creds = self._client.derive_api_key()
+                creds_raw = self._client.derive_api_key()
+                # derive_api_key() pode retornar dict ou ApiCreds
+                if isinstance(creds_raw, dict):
+                    creds = ApiCreds(
+                        api_key=creds_raw.get("apiKey", creds_raw.get("api_key", "")),
+                        api_secret=creds_raw.get("secret", creds_raw.get("api_secret", "")),
+                        api_passphrase=creds_raw.get("passphrase", creds_raw.get("api_passphrase", "")),
+                    )
+                else:
+                    creds = creds_raw
                 self._client.set_api_creds(creds)
                 logger.info("api_creds_derived",
                            api_key=(creds.api_key[:8] + "...") if creds and creds.api_key else "")
