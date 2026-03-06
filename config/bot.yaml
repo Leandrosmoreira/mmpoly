@@ -61,4 +61,4 @@ log_dir: "logs"
 snapshot_interval_s: 30
 
 # === Mode ===
-dry_run: true                  # true = log intents apenas, sem ordens reais
+dry_run: false                 # false = ordens reais no Polymarket
