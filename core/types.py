@@ -238,6 +238,7 @@ class BotConfig:
     levels: int = 5                # alias para grid.max_levels
 
     # Grid dinamico
+    grid_levels: int = 0               # 0=usa grid: block, 1/3/5=atalho simples
     grid: GridConfig = field(default_factory=GridConfig)
     price_move_threshold: float = 0.01  # cancela nivel se preco mudou >= 1 tick
 

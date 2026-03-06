@@ -1,7 +1,15 @@
 # GabaBook MM Bot — Configuration
 # All prices in USDC, sizes in shares
 
-# === Grid Dinamico ===
+# ==========================================
+# AJUSTE PRINCIPAL: quantos niveis de grid?
+#   1 = conservador  (iniciar aqui)
+#   3 = moderado     (depois de aprender)
+#   5 = completo     (maximo, experiente)
+# ==========================================
+grid_levels: 1
+
+# === Grid Dinamico (detalhes — ignorado se grid_levels > 0) ===
 grid:
   max_levels: 5                # niveis por lado por token
   level_spacing_ticks: 2       # 2 ticks (0.02) entre niveis

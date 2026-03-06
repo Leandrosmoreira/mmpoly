@@ -85,7 +85,7 @@ class GabaBot:
 
     def _load_config(self, path: str) -> BotConfig:
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
             cfg = BotConfig()
             for k, v in data.items():
@@ -98,6 +98,18 @@ class GabaBot:
                     cfg.grid = grid_cfg
                 elif hasattr(cfg, k):
                     setattr(cfg, k, v)
+
+            # Atalho: grid_levels sobrescreve grid.mid_*_levels e max_levels
+            if cfg.grid_levels > 0:
+                n = cfg.grid_levels
+                cfg.grid.max_levels = n
+                cfg.grid.mid_buy_levels = n
+                cfg.grid.mid_sell_levels = n
+                cfg.max_orders_per_side = max(4, n * 2)
+                cfg.max_position = n * cfg.grid.level_size * 2
+                cfg.net_hard_limit = n * cfg.grid.level_size * 2.5
+                cfg.net_soft_limit = n * cfg.grid.level_size
+
             return cfg
         except FileNotFoundError:
             logger.warning("config_not_found", path=path, msg="using defaults")
