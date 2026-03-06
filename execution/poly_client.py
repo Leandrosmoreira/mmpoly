@@ -17,7 +17,7 @@ import structlog
 from typing import Optional
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType
+from py_clob_client.clob_types import ApiCreds, OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from core.types import BotConfig, Direction, Intent, LiveOrder, Side
@@ -45,13 +45,22 @@ class PolyClient:
         self._funder: str = ""
 
     def connect(self):
-        """Initialize CLOB client with credentials from env."""
-        private_key = os.environ.get("POLY_PRIVATE_KEY", "")
-        api_key = os.environ.get("POLY_API_KEY", "")
-        api_secret = os.environ.get("POLY_API_SECRET", "")
-        api_passphrase = os.environ.get("POLY_API_PASSPHRASE", "")
-        wallet_type = os.environ.get("POLY_WALLET_TYPE", "eoa").lower().strip()
-        self._funder = os.environ.get("POLY_FUNDER", "")
+        """Initialize CLOB client with credentials from env.
+        Accepts POLY_* or POLYMARKET_* (e.g. bookpoly .env)."""
+        def _get(key: str, poly: str, polymarket: str) -> str:
+            return os.environ.get(poly, "").strip() or os.environ.get(polymarket, "").strip()
+        private_key = _get("POLY_PRIVATE_KEY", "POLY_PRIVATE_KEY", "POLYMARKET_PRIVATE_KEY")
+        api_key = _get("POLY_API_KEY", "POLY_API_KEY", "POLYMARKET_API_KEY")
+        api_secret = _get("POLY_API_SECRET", "POLY_API_SECRET", "POLYMARKET_API_SECRET")
+        api_passphrase = _get("POLY_API_PASSPHRASE", "POLY_API_PASSPHRASE", "POLYMARKET_PASSPHRASE")
+        wallet_type = (os.environ.get("POLY_WALLET_TYPE") or os.environ.get("POLYMARKET_SIGNATURE_TYPE", "eoa")).lower().strip()
+        if wallet_type == "1":
+            wallet_type = "proxy"
+        elif wallet_type == "2":
+            wallet_type = "magic"
+        elif wallet_type not in ("eoa", "proxy", "magic", "email", "magic2", "magiclink"):
+            wallet_type = "eoa"
+        self._funder = _get("POLY_FUNDER", "POLY_FUNDER", "POLYMARKET_FUNDER")
 
         if not private_key:
             logger.warning("no_private_key", msg="Running without credentials (dry-run only)")
@@ -69,11 +78,11 @@ class PolyClient:
 
         creds = None
         if api_key:
-            creds = {
-                "apiKey": api_key,
-                "secret": api_secret,
-                "passphrase": api_passphrase,
-            }
+            creds = ApiCreds(
+                api_key=api_key,
+                api_secret=api_secret,
+                api_passphrase=api_passphrase,
+            )
 
         self._client = ClobClient(
             CLOB_URL,
@@ -89,7 +98,7 @@ class PolyClient:
                 creds = self._client.derive_api_key()
                 self._client.set_api_creds(creds)
                 logger.info("api_creds_derived",
-                           api_key=creds.get("apiKey", "")[:8] + "...")
+                           api_key=(creds.api_key[:8] + "...") if creds and creds.api_key else "")
             except Exception as e:
                 logger.error("derive_api_key_failed", error=str(e))
                 raise

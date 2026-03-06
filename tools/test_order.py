@@ -27,8 +27,13 @@ import argparse
 from dotenv import load_dotenv
 
 # Project root no path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _root)
+load_dotenv(os.path.join(_root, ".env"))
+# Permitir usar chaves do bookpoly (POLYMARKET_*)
+_bookpoly_env = os.path.join(_root, "..", "bookpoly", ".env")
+if os.path.isfile(_bookpoly_env):
+    load_dotenv(_bookpoly_env)
 
 from bot.logger import setup_logging
 from core.types import BotConfig, Direction, GridConfig, Intent, IntentType, Side

@@ -19,19 +19,20 @@ echo "=========================================="
 # === 1. System dependencies ===
 echo "[1/7] Installing system dependencies..."
 sudo apt-get update -qq
+# Prefer python3.11 if in repos; otherwise use system python3
+if sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev 2>/dev/null; then
+    PYTHON_VERSION="python3.11"
+else
+    echo "  python3.11 not in repos, using system python3..."
+    PYTHON_VERSION="python3"
+    sudo apt-get install -y -qq python3 python3-venv python3-dev
+fi
 sudo apt-get install -y -qq \
-    python3.11 python3.11-venv python3.11-dev \
     python3-pip \
     build-essential \
     git \
     curl \
     jq
-
-# Fallback: if python3.11 not available, use python3
-if ! command -v $PYTHON_VERSION &> /dev/null; then
-    echo "  python3.11 not found, using python3..."
-    PYTHON_VERSION="python3"
-fi
 
 echo "  Using: $($PYTHON_VERSION --version)"
 
