@@ -187,7 +187,13 @@ class PolyClient:
 
         try:
             resp = await asyncio.to_thread(self._client.cancel, order_id)
-            success = bool(resp and resp.get("success", False))
+            # Polymarket retorna {'canceled': [order_id], 'not_canceled': {}}
+            # (nao tem campo 'success')
+            if isinstance(resp, dict):
+                canceled_list = resp.get("canceled", [])
+                success = (order_id in canceled_list) or bool(resp.get("success", False))
+            else:
+                success = bool(resp)
             if success:
                 logger.info("order_cancelled", order_id=order_id)
             else:

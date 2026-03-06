@@ -151,10 +151,11 @@ async def run_test(live: bool):
     book = await poly_client.get_order_book_async(token_id)
 
     if book:
-        # Extrai melhor bid do book real
+        # Polymarket retorna bids em ordem crescente (pior→melhor)
+        # O melhor bid e o ultimo elemento da lista
         bids = getattr(book, 'bids', []) or []
-        best_bid = float(bids[0].price) if bids else market.best_bid
-        print(f"  Book OK. Melhor bid: {best_bid}")
+        best_bid = float(bids[-1].price) if bids else market.best_bid
+        print(f"  Book OK. Melhor bid: {best_bid} ({len(bids)} niveis no book)")
     else:
         best_bid = market.best_bid or 0.50
         print(f"  Book nao disponivel. Usando bid da API: {best_bid}")
