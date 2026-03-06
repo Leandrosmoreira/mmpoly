@@ -69,7 +69,6 @@ def log_snapshot(market_name: str, inv, risk_status: dict):
     """Log a PnL snapshot."""
     logger = structlog.get_logger()
     logger.info("snapshot",
-                event="snapshot",
                 market=market_name,
                 net=inv.net,
                 pos_up=inv.shares_up,

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 import asyncio
+import json
 import aiohttp
 import structlog
 from dataclasses import dataclass
@@ -108,8 +109,25 @@ async def discover_market(
             m = markets[0]
 
             # Parse token IDs
-            clob_tokens = m.get("clobTokenIds", [])
-            outcomes = m.get("outcomes", [])
+            # Gamma API may return clobTokenIds as JSON string or list
+            clob_tokens_raw = m.get("clobTokenIds", [])
+            if isinstance(clob_tokens_raw, str):
+                try:
+                    clob_tokens = json.loads(clob_tokens_raw)
+                except (json.JSONDecodeError, TypeError):
+                    clob_tokens = []
+            else:
+                clob_tokens = clob_tokens_raw
+
+            # Same for outcomes
+            outcomes_raw = m.get("outcomes", [])
+            if isinstance(outcomes_raw, str):
+                try:
+                    outcomes = json.loads(outcomes_raw)
+                except (json.JSONDecodeError, TypeError):
+                    outcomes = []
+            else:
+                outcomes = outcomes_raw
 
             if len(clob_tokens) < 2 or len(outcomes) < 2:
                 logger.warning("invalid_market_tokens", slug=slug)

@@ -139,12 +139,27 @@ class WSFeed:
                 await self._session.close()
 
     def _handle_message(self, raw: str):
-        """Parse and route WS message. Sync — no I/O."""
+        """Parse and route WS message. Sync — no I/O.
+
+        Polymarket WS may send:
+        - A single dict: {"type": "book", ...}
+        - An array of dicts: [{"type": "book", ...}, ...]
+        """
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
             return
 
+        # Handle array messages: iterate each element
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    self._process_event(item)
+        elif isinstance(data, dict):
+            self._process_event(data)
+
+    def _process_event(self, data: dict):
+        """Process a single WS event dict."""
         msg_type = data.get("type", data.get("channel", ""))
 
         if msg_type == "book":
