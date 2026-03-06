@@ -24,7 +24,7 @@ price_move_threshold: 0.01     # cancela nivel se preco mudou >= 1 tick
 # === Quoting ===
 tick: 0.01
 order_size: 5                  # compatibilidade (grid usa grid.level_size)
-min_spread: 0.04               # spread minimo para entrar (4 ticks = 0.04)
+min_spread: 0.01               # spread minimo para entrar (BTC 15m tipicamente 1-2 ticks)
 quote_ttl_ms: 8000             # TTL das ordens: 8s (grid e menos agressivo em cancel)
 skew_factor: 2.0               # fator de skew de inventario
 
