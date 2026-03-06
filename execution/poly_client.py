@@ -47,20 +47,32 @@ class PolyClient:
     def connect(self):
         """Initialize CLOB client with credentials from env.
         Accepts POLY_* or POLYMARKET_* (e.g. bookpoly .env)."""
-        def _get(key: str, poly: str, polymarket: str) -> str:
-            return os.environ.get(poly, "").strip() or os.environ.get(polymarket, "").strip()
-        private_key = _get("POLY_PRIVATE_KEY", "POLY_PRIVATE_KEY", "POLYMARKET_PRIVATE_KEY")
-        api_key = _get("POLY_API_KEY", "POLY_API_KEY", "POLYMARKET_API_KEY")
-        api_secret = _get("POLY_API_SECRET", "POLY_API_SECRET", "POLYMARKET_API_SECRET")
-        api_passphrase = _get("POLY_API_PASSPHRASE", "POLY_API_PASSPHRASE", "POLYMARKET_PASSPHRASE")
+        def _env(*keys: str) -> str:
+            """Try multiple env var names, return first non-empty."""
+            for k in keys:
+                v = os.environ.get(k, "").strip()
+                if v:
+                    return v
+            return ""
+        private_key = _env("POLY_PRIVATE_KEY", "POLYMARKET_PRIVATE_KEY")
+        api_key = _env("POLY_API_KEY", "POLYMARKET_API_KEY")
+        api_secret = _env("POLY_API_SECRET", "POLYMARKET_API_SECRET", "POLYMARKET_SECRET")
+        api_passphrase = _env("POLY_API_PASSPHRASE", "POLYMARKET_PASSPHRASE", "POLYMARKET_API_PASSPHRASE")
         wallet_type = (os.environ.get("POLY_WALLET_TYPE") or os.environ.get("POLYMARKET_SIGNATURE_TYPE", "eoa")).lower().strip()
+
+        logger.info("creds_check",
+                     has_key=bool(private_key),
+                     has_api_key=bool(api_key),
+                     has_secret=bool(api_secret),
+                     has_passphrase=bool(api_passphrase),
+                     has_funder=bool(_env("POLY_FUNDER", "POLYMARKET_FUNDER")))
         if wallet_type == "1":
             wallet_type = "proxy"
         elif wallet_type == "2":
             wallet_type = "magic"
         elif wallet_type not in ("eoa", "proxy", "magic", "email", "magic2", "magiclink"):
             wallet_type = "eoa"
-        self._funder = _get("POLY_FUNDER", "POLY_FUNDER", "POLYMARKET_FUNDER")
+        self._funder = _env("POLY_FUNDER", "POLYMARKET_FUNDER")
 
         if not private_key:
             logger.warning("no_private_key", msg="Running without credentials (dry-run only)")
