@@ -97,12 +97,12 @@ class Engine:
                 logger.info("state_change", market=self.market.name,
                            to_state="EXITING",
                            time_remaining=f"{self.market.time_remaining_s:.0f}s")
-            intents.extend(self._exit_intents())
+            intents.extend(self._exit_intents(live_order_ids, order_mgr))
             return intents
 
         # === EXITING (kill switch etc.) ===
         if state == BotState.EXITING:
-            intents.extend(self._exit_intents())
+            intents.extend(self._exit_intents(live_order_ids, order_mgr))
             if abs(inv.net) < 1.0:
                 self.market.state = BotState.IDLE
             return intents
@@ -140,7 +140,13 @@ class Engine:
         self._requote_requested = False
 
         # === Validade do book ===
-        if book_up.is_stale(self.cfg.stale_book_ms) or book_down.is_stale(self.cfg.stale_book_ms):
+        books_stale = book_up.is_stale(self.cfg.stale_book_ms) or book_down.is_stale(self.cfg.stale_book_ms)
+        if books_stale:
+            # Stale book: don't place new grid quotes, but still try to
+            # reduce inventory using cached prices to avoid holding to expiry
+            has_inventory = inv.shares_up > 0 or inv.shares_down > 0
+            if has_inventory:
+                intents.extend(self._stale_book_reduce_intents(live_order_ids, order_mgr))
             return intents
 
         # === Grid: calcula quotes desejadas ===
@@ -256,15 +262,37 @@ class Engine:
     def _cancel_all_intents(self, order_ids: list[str], reason: str) -> list[Intent]:
         return self._cancel_intents(order_ids, reason)
 
-    def _exit_intents(self) -> list[Intent]:
+    def _has_pending_sells(
+        self, live_order_ids: list[str], order_mgr: "OrderManager",
+    ) -> tuple[bool, bool]:
+        """Check for existing pending SELL orders.
+
+        Returns (has_sell_up, has_sell_down).
+        """
+        sell_up = False
+        sell_down = False
+        for oid in live_order_ids:
+            order = order_mgr.get(oid)
+            if order and order.direction == Direction.SELL:
+                if order.side == Side.UP:
+                    sell_up = True
+                elif order.side == Side.DOWN:
+                    sell_down = True
+        return sell_up, sell_down
+
+    def _exit_intents(
+        self, live_order_ids: list[str], order_mgr: "OrderManager",
+    ) -> list[Intent]:
         """Gera intents de saida: vende TODA posicao a mercado (taker).
 
-        No EXIT, vende ambos os lados se tiver shares. Nao espera.
+        No EXIT, vende ambos os lados se tiver shares.
+        Nao coloca sell duplicado se ja tem um pendente.
         """
         intents = []
         inv = self.market.inventory
+        sell_up, sell_down = self._has_pending_sells(live_order_ids, order_mgr)
 
-        if inv.shares_up > 0 and self.market.book_up.is_valid:
+        if inv.shares_up > 0 and self.market.book_up.is_valid and not sell_up:
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
@@ -275,7 +303,7 @@ class Engine:
                 reason="exit_reduce_up",
             ))
 
-        if inv.shares_down > 0 and self.market.book_down.is_valid:
+        if inv.shares_down > 0 and self.market.book_down.is_valid and not sell_down:
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
@@ -284,6 +312,42 @@ class Engine:
                 price=self.market.book_down.best_bid,
                 size=min(inv.shares_down, self.cfg.grid.level_size),
                 reason="exit_reduce_down",
+            ))
+
+        return intents
+
+    def _stale_book_reduce_intents(
+        self, live_order_ids: list[str], order_mgr: "OrderManager",
+    ) -> list[Intent]:
+        """Sell intents when book is stale but we hold inventory.
+
+        Uses cached book prices. Better to sell at slightly off price
+        than hold to expiry and lose everything.
+        """
+        intents = []
+        inv = self.market.inventory
+        sell_up, sell_down = self._has_pending_sells(live_order_ids, order_mgr)
+
+        if inv.shares_up > 0 and self.market.book_up.is_valid and not sell_up:
+            intents.append(Intent(
+                type=IntentType.PLACE_ORDER,
+                market_name=self.market.name,
+                side=Side.UP,
+                direction=Direction.SELL,
+                price=self.market.book_up.best_bid + self.cfg.tick,
+                size=min(inv.shares_up, self.cfg.grid.level_size),
+                reason="stale_book_reduce_up",
+            ))
+
+        if inv.shares_down > 0 and self.market.book_down.is_valid and not sell_down:
+            intents.append(Intent(
+                type=IntentType.PLACE_ORDER,
+                market_name=self.market.name,
+                side=Side.DOWN,
+                direction=Direction.SELL,
+                price=self.market.book_down.best_bid + self.cfg.tick,
+                size=min(inv.shares_down, self.cfg.grid.level_size),
+                reason="stale_book_reduce_down",
             ))
 
         return intents
