@@ -43,7 +43,7 @@ max_position: 50               # max shares por token (5 niveis x 5 shares x 2 =
 
 # === Orders ===
 max_orders_per_side: 10        # 5 niveis BUY + 5 SELL por token
-max_cancel_per_min: 60
+max_cancel_per_min: 180
 
 # === Time Regimes (segundos restantes) ===
 t_early: 300                   # > 5min: 1 nivel, spread largo

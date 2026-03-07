@@ -150,16 +150,22 @@ class WSFeed:
         except json.JSONDecodeError:
             return
 
-        # Handle array messages: iterate each element
+        # Handle array messages: iterate each element (flatten nested arrays)
         if isinstance(data, list):
             for item in data:
                 if isinstance(item, dict):
                     self._process_event(item)
+                elif isinstance(item, list):
+                    for sub in item:
+                        if isinstance(sub, dict):
+                            self._process_event(sub)
         elif isinstance(data, dict):
             self._process_event(data)
 
-    def _process_event(self, data: dict):
+    def _process_event(self, data):
         """Process a single WS event dict."""
+        if not isinstance(data, dict):
+            return
         msg_type = data.get("type", data.get("channel", ""))
 
         if msg_type == "book":
@@ -172,6 +178,8 @@ class WSFeed:
         elif msg_type == "price_change":
             changes = data.get("changes", [data])
             for change in changes:
+                if not isinstance(change, dict):
+                    continue
                 asset_id = change.get("asset_id", "")
                 bids = change.get("bids", [])
                 asks = change.get("asks", [])

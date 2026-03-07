@@ -257,11 +257,14 @@ class Engine:
         return self._cancel_intents(order_ids, reason)
 
     def _exit_intents(self) -> list[Intent]:
-        """Gera intents de saida: vende posicao a mercado (taker)."""
+        """Gera intents de saida: vende TODA posicao a mercado (taker).
+
+        No EXIT, vende ambos os lados se tiver shares. Nao espera.
+        """
         intents = []
         inv = self.market.inventory
 
-        if inv.net > 1.0 and self.market.book_up.is_valid:
+        if inv.shares_up > 0 and self.market.book_up.is_valid:
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
@@ -271,7 +274,8 @@ class Engine:
                 size=min(inv.shares_up, self.cfg.grid.level_size),
                 reason="exit_reduce_up",
             ))
-        elif inv.net < -1.0 and self.market.book_down.is_valid:
+
+        if inv.shares_down > 0 and self.market.book_down.is_valid:
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,

@@ -68,6 +68,7 @@ class GabaBot:
         # Components
         self.book_cache = BookCache()
         self.inventory = InventoryTracker()
+        self.inventory.load_snapshot()  # Restore inventory from crash
         self.fills = FillsCache()
         self.order_mgr = OrderManager(self.cfg)
         self.risk_mgr = RiskManager(self.cfg)
@@ -398,19 +399,15 @@ class GabaBot:
                     if status == "canceled":
                         self.risk_mgr.record_cancel()
                     elif status == "matched" and order:
-                        # Order was filled — infer fill and update inventory
-                        fill = Fill(
-                            order_id=order.order_id,
-                            market_name=order.market_name,
-                            token_id=order.token_id,
-                            side=order.side,
-                            direction=order.direction,
-                            price=order.price,
-                            size=order.size - order.filled,
-                            ts=time.time(),
-                            is_maker=True,
-                        )
-                        self.handle_fill(fill)
+                        # Order was filled during cancel — do NOT infer fill.
+                        # The real fill comes via WS. Inferring here causes
+                        # double inventory (buys both UP and DOWN).
+                        logger.warning("cancel_matched_order",
+                                       order_id=order.order_id,
+                                       market=order.market_name,
+                                       side=order.side.value,
+                                       direction=order.direction.value,
+                                       px=order.price, sz=order.size)
 
             elif intent.type == IntentType.CANCEL_ALL:
                 if intent.market_name == "ALL":
