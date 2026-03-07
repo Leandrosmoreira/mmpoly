@@ -197,43 +197,53 @@ class PolyClient:
             logger.error("place_order_error", error=str(e), market=intent.market_name)
             return None
 
-    async def cancel_order(self, order_id: str) -> bool:
-        """Cancel a specific order. Non-blocking."""
+    async def cancel_order(self, order_id: str) -> str:
+        """Cancel a specific order. Non-blocking.
+
+        Returns:
+            "canceled" — successfully canceled
+            "matched" — order was filled (infer fill)
+            "gone"    — already canceled or not found
+            "failed"  — actual failure
+        """
         if self.cfg.dry_run:
             logger.info("dry_run_cancel", order_id=order_id)
-            return True
+            return "canceled"
 
         if self._client is None:
-            return False
+            return "failed"
 
         try:
             resp = await asyncio.to_thread(self._client.cancel, order_id)
-            # Polymarket retorna {'canceled': [order_id], 'not_canceled': {}}
             if isinstance(resp, dict):
                 canceled_list = resp.get("canceled", [])
                 not_canceled = resp.get("not_canceled", {})
-                success = (order_id in canceled_list) or bool(resp.get("success", False))
-                # "already canceled or matched" = order is gone, treat as success
-                if not success and not_canceled:
+                if order_id in canceled_list or resp.get("success"):
+                    logger.info("order_cancelled", order_id=order_id)
+                    return "canceled"
+                if not_canceled:
                     reason = str(not_canceled).lower()
-                    if "matched" in reason or "already" in reason or "not found" in reason:
-                        logger.info("order_already_gone", order_id=order_id, reason=reason)
-                        return True
-            else:
-                success = bool(resp)
-            if success:
+                    if "matched" in reason:
+                        logger.info("order_matched", order_id=order_id)
+                        return "matched"
+                    if "already" in reason or "not found" in reason:
+                        logger.info("order_already_gone", order_id=order_id)
+                        return "gone"
+            elif resp:
                 logger.info("order_cancelled", order_id=order_id)
-            else:
-                logger.warning("cancel_failed", order_id=order_id, resp=resp)
-            return success
+                return "canceled"
+            logger.warning("cancel_failed", order_id=order_id, resp=resp)
+            return "failed"
         except Exception as e:
             err_msg = str(e).lower()
-            # API exception for already-gone orders
-            if "not found" in err_msg or "matched" in err_msg or "already" in err_msg:
+            if "matched" in err_msg:
+                logger.info("order_matched", order_id=order_id, error=str(e))
+                return "matched"
+            if "not found" in err_msg or "already" in err_msg:
                 logger.info("order_already_gone", order_id=order_id, error=str(e))
-                return True
+                return "gone"
             logger.error("cancel_error", order_id=order_id, error=str(e))
-            return False
+            return "failed"
 
     async def cancel_all(self) -> bool:
         """Cancel all open orders. Non-blocking."""

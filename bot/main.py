@@ -384,13 +384,27 @@ class GabaBot:
 
             elif intent.type == IntentType.CANCEL_ORDER:
                 if intent.order_id:
-                    success = await self.poly_client.cancel_order(intent.order_id)
-                    # Always remove from manager — if cancel failed, order is
-                    # either already filled/canceled or truly stuck. Keeping it
-                    # causes infinite cancel loops that flood rate limits.
+                    # Lookup order BEFORE removing (need details for fill inference)
+                    order = self.order_mgr.get(intent.order_id)
+                    status = await self.poly_client.cancel_order(intent.order_id)
+                    # Always remove from manager to prevent infinite cancel loops
                     self.order_mgr.remove(intent.order_id)
-                    if success:
+                    if status == "canceled":
                         self.risk_mgr.record_cancel()
+                    elif status == "matched" and order:
+                        # Order was filled — infer fill and update inventory
+                        fill = Fill(
+                            order_id=order.order_id,
+                            market_name=order.market_name,
+                            token_id=order.token_id,
+                            side=order.side,
+                            direction=order.direction,
+                            price=order.price,
+                            size=order.size - order.filled,
+                            ts=time.time(),
+                            is_maker=True,
+                        )
+                        self.handle_fill(fill)
 
             elif intent.type == IntentType.CANCEL_ALL:
                 if intent.market_name == "ALL":
