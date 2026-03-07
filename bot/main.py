@@ -447,7 +447,7 @@ class GabaBot:
         inv = self.inventory.get(fill.market_name)
         self.risk_mgr.record_fill_pnl(inv.realized_pnl)
 
-        logger.info("fill", event="fill", market=fill.market_name,
+        logger.info("fill_detected", market=fill.market_name,
                     side=fill.side.value, direction=fill.direction.value,
                     px=fill.price, sz=fill.size, is_maker=fill.is_maker,
                     net=inv.net, realized_pnl=inv.realized_pnl)
