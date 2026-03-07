@@ -59,6 +59,16 @@ class GridConfig:
     mid_sell_levels: int = 5
 
 
+@dataclass
+class SomaConfig:
+    """Soma check config (UP_mid + DOWN_mid ≈ 1.0 mispricing detection)."""
+    enabled: bool = True
+    fair_value: float = 1.0            # soma esperada
+    threshold: float = 0.03            # divergencia minima para ativar (3 ticks)
+    max_adjustment: float = 0.03       # ajuste maximo por lado (3 ticks)
+    aggression: float = 0.5            # 0.0-1.0: fracao da divergencia usada como offset
+
+
 # === Data Structures ===
 
 @dataclass
@@ -241,6 +251,9 @@ class BotConfig:
     grid_levels: int = 0               # 0=usa grid: block, 1/3/5=atalho simples
     grid: GridConfig = field(default_factory=GridConfig)
     price_move_threshold: float = 0.01  # cancela nivel se preco mudou >= 1 tick
+
+    # Soma check (mispricing UP+DOWN)
+    soma: SomaConfig = field(default_factory=SomaConfig)
 
     # Inventory
     net_soft_limit: float = 10.0   # ajustado para grid (era 15)

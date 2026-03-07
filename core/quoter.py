@@ -1,10 +1,11 @@
-"""Grid quote computation with inventory skew and time regime adjustment.
+"""Grid quote computation with inventory skew, time regime, and soma check.
 
 Grid dinamico 5x5:
 - 5 niveis de BUY e 5 de SELL por token (UP e DOWN)
 - Cada nivel = 5 shares (minimo Polymarket)
 - Niveis ativos variam por regime de tempo e inventario
 - Cancel seletivo: so cancela nivel se preco mudou >= 1 tick
+- Soma check: ajusta precos quando UP_mid + DOWN_mid diverge de 1.0
 
 Polymarket specifics:
 - Minimum order size: 5 shares
@@ -14,9 +15,13 @@ Polymarket specifics:
 
 from __future__ import annotations
 
+import structlog
+
 from core.types import (
     BotConfig, Direction, GridConfig, Inventory, Quote, Side, TimeRegime, TopOfBook,
 )
+
+log = structlog.get_logger()
 
 MIN_ORDER_SIZE = 5  # Polymarket minimum
 
@@ -87,12 +92,54 @@ def active_levels(
     return buy_l, sell_l
 
 
+def compute_soma_adjustment(
+    book_up: TopOfBook,
+    book_down: TopOfBook,
+    cfg: BotConfig,
+) -> tuple[float, float]:
+    """Calcula ajuste de preco por token baseado na divergencia da soma.
+
+    UP_mid + DOWN_mid deveria ser ~1.0. Quando diverge:
+    - soma > 1.0 (overpriced): adj positivo → BUYs mais baratos, SELLs mais caros
+    - soma < 1.0 (underpriced): adj negativo → BUYs mais caros, SELLs mais baratos
+
+    Returns: (up_adj, down_adj) — offset a aplicar nos precos de cada token.
+    """
+    sc = cfg.soma
+    if not sc.enabled:
+        return 0.0, 0.0
+
+    if book_up.mid <= 0 or book_down.mid <= 0:
+        return 0.0, 0.0
+
+    soma = book_up.mid + book_down.mid
+    divergence = soma - sc.fair_value
+
+    if abs(divergence) < sc.threshold:
+        return 0.0, 0.0
+
+    # Distribui ajuste proporcionalmente ao mid de cada lado
+    up_weight = book_up.mid / soma
+    down_weight = book_down.mid / soma
+
+    raw_adj = divergence * sc.aggression
+
+    up_adj = clamp(raw_adj * up_weight, -sc.max_adjustment, sc.max_adjustment)
+    down_adj = clamp(raw_adj * down_weight, -sc.max_adjustment, sc.max_adjustment)
+
+    log.info("soma_check", soma=round(soma, 4), divergence=round(divergence, 4),
+             up_adj=round(up_adj, 4), down_adj=round(down_adj, 4))
+
+    return up_adj, down_adj
+
+
 def compute_grid_quotes(
     book: TopOfBook,
     side: Side,
     inv: Inventory,
     regime: TimeRegime,
     cfg: BotConfig,
+    price_adj: float = 0.0,
 ) -> list[Quote]:
     """Computa quotes do grid para um token (UP ou DOWN).
 
@@ -119,8 +166,9 @@ def compute_grid_quotes(
     # Nivel 0: best_bid + tick (melhora 1 tick acima do melhor bid)
     # Nivel 1: nivel 0 - spacing
     # Nivel N: nivel 0 - N * spacing
+    # Soma check: price_adj > 0 → BUY mais barato (menos fills quando overpriced)
     for lvl in range(buy_levels):
-        px = round_price(book.best_bid + tick - lvl * spacing)
+        px = round_price(book.best_bid + tick - lvl * spacing - price_adj)
 
         # POST_ONLY: nao pode cruzar o ask
         if px >= book.best_ask:
@@ -144,8 +192,9 @@ def compute_grid_quotes(
     # Nivel 0: best_ask - tick (melhora 1 tick abaixo do melhor ask)
     # Nivel 1: nivel 0 + spacing
     # Nivel N: nivel 0 + N * spacing
+    # Soma check: price_adj > 0 → SELL mais caro (mais fills quando overpriced)
     for lvl in range(sell_levels):
-        px = round_price(book.best_ask - tick + lvl * spacing)
+        px = round_price(book.best_ask - tick + lvl * spacing + price_adj)
 
         # POST_ONLY: nao pode cruzar o bid
         if px <= book.best_bid:
@@ -176,8 +225,10 @@ def compute_all_quotes(
     regime: TimeRegime,
     cfg: BotConfig,
 ) -> list[Quote]:
-    """Computa quotes do grid para UP e DOWN."""
+    """Computa quotes do grid para UP e DOWN com soma check."""
+    up_adj, down_adj = compute_soma_adjustment(book_up, book_down, cfg)
+
     quotes: list[Quote] = []
-    quotes.extend(compute_grid_quotes(book_up, Side.UP, inv, regime, cfg))
-    quotes.extend(compute_grid_quotes(book_down, Side.DOWN, inv, regime, cfg))
+    quotes.extend(compute_grid_quotes(book_up, Side.UP, inv, regime, cfg, price_adj=up_adj))
+    quotes.extend(compute_grid_quotes(book_down, Side.DOWN, inv, regime, cfg, price_adj=down_adj))
     return quotes

@@ -32,7 +32,7 @@ for _bp in [
         break
 
 from bot.logger import setup_logging, log_snapshot
-from core.types import BotConfig, BotState, Direction, Fill, GridConfig, IntentType, MarketState, Side
+from core.types import BotConfig, BotState, Direction, Fill, GridConfig, IntentType, MarketState, Side, SomaConfig
 from core.engine import Engine
 from data.book import BookCache
 from data.inventory import InventoryTracker
@@ -106,6 +106,12 @@ class GabaBot:
                         if hasattr(grid_cfg, gk):
                             setattr(grid_cfg, gk, gv)
                     cfg.grid = grid_cfg
+                elif k == "soma" and isinstance(v, dict):
+                    soma_cfg = SomaConfig()
+                    for sk, sv in v.items():
+                        if hasattr(soma_cfg, sk):
+                            setattr(soma_cfg, sk, sv)
+                    cfg.soma = soma_cfg
                 elif hasattr(cfg, k):
                     setattr(cfg, k, v)
 

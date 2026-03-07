@@ -7,7 +7,7 @@
 #   3 = moderado     (depois de aprender)
 #   5 = completo     (maximo, experiente)
 # ==========================================
-grid_levels: 1
+grid_levels: 3
 
 # === Grid Dinamico (detalhes — ignorado se grid_levels > 0) ===
 grid:
@@ -20,6 +20,14 @@ grid:
   mid_sell_levels: 5
 
 price_move_threshold: 0.01     # cancela nivel se preco mudou >= 1 tick
+
+# === Soma Check (mispricing UP+DOWN ≈ 1.0) ===
+soma:
+  enabled: true
+  fair_value: 1.0              # soma teorica esperada
+  threshold: 0.03              # divergencia minima para ativar (3 ticks)
+  max_adjustment: 0.03         # ajuste maximo por lado (3 ticks)
+  aggression: 0.5              # fracao da divergencia usada como offset
 
 # === Quoting ===
 tick: 0.01
