@@ -103,7 +103,7 @@ def compute_grid_quotes(
         return []
     if regime == TimeRegime.EXIT:
         return []
-    if book.spread < cfg.min_spread:
+    if book.spread < cfg.min_spread - 0.001:
         return []
 
     g = cfg.grid
