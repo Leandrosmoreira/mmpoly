@@ -238,6 +238,17 @@ sudo systemctl restart botquant   # reinicia
 sudo systemctl status botquant    # status atual
 ```
 
+### Logs para auditoria (opcional)
+
+Para gravar **eventos** e **trades** diretamente na pasta do clone (`mmpoly/logs/`), rode uma vez:
+
+```bash
+cd ~/mmpoly
+bash tools/setup_audit_logs.sh
+```
+
+Isso cria symlinks: o bot passa a escrever em `mmpoly/logs/vps_events.jsonl` e `mmpoly/logs/vps_trades.jsonl`. Assim você audita pelos ficheiros no projeto (e pode baixá-los por Cursor/SCP). O script para o bot, configura os links e reinicia.
+
 ---
 
 ## 8. Atualizar o bot
