@@ -101,6 +101,11 @@ class TopOfBook:
             and self.best_ask_sz > 0
         )
 
+    @property
+    def has_bid(self) -> bool:
+        """Has a non-zero bid price — sufficient for placing sell orders."""
+        return self.best_bid > 0
+
     def is_stale(self, max_age_ms: float) -> bool:
         age_ms = (time.time() - self.ts) * 1000
         return age_ms > max_age_ms

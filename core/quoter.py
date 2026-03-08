@@ -146,10 +146,27 @@ def compute_grid_quotes(
     Grid de compra: nivel 0 = bid+tick, nivel 1 = bid+tick-spacing, ...
     Grid de venda:  nivel 0 = ask-tick, nivel 1 = ask-tick+spacing, ...
     """
-    if not book.is_valid:
-        return []
     if regime == TimeRegime.EXIT:
         return []
+
+    current_pos = inv.shares_up if side == Side.UP else inv.shares_down
+
+    if not book.is_valid:
+        # Can't compute full grid, but if we HAVE inventory and a bid price,
+        # generate an emergency sell to avoid holding to expiry
+        if book.best_bid > 0 and current_pos >= cfg.grid.level_size:
+            log.info("emergency_sell", side=side.value,
+                     best_bid=book.best_bid, pos=current_pos,
+                     reason="book_invalid_but_has_inventory")
+            return [Quote(
+                side=side,
+                direction=Direction.SELL,
+                price=round_price(book.best_bid + cfg.tick),
+                size=cfg.grid.level_size,
+                level=0,
+            )]
+        return []
+
     if book.spread < cfg.min_spread - 0.001:
         return []
 
@@ -158,8 +175,6 @@ def compute_grid_quotes(
     spacing = g.level_spacing_ticks * tick  # ex: 2 * 0.01 = 0.02
 
     buy_levels, sell_levels = active_levels(cfg, regime, inv, side)
-
-    current_pos = inv.shares_up if side == Side.UP else inv.shares_down
     quotes: list[Quote] = []
 
     # === Grid de COMPRA ===

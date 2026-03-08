@@ -292,7 +292,7 @@ class Engine:
         inv = self.market.inventory
         sell_up, sell_down = self._has_pending_sells(live_order_ids, order_mgr)
 
-        if inv.shares_up > 0 and self.market.book_up.is_valid and not sell_up:
+        if inv.shares_up > 0 and self.market.book_up.has_bid and not sell_up:
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
@@ -303,7 +303,7 @@ class Engine:
                 reason="exit_reduce_up",
             ))
 
-        if inv.shares_down > 0 and self.market.book_down.is_valid and not sell_down:
+        if inv.shares_down > 0 and self.market.book_down.has_bid and not sell_down:
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
@@ -328,7 +328,7 @@ class Engine:
         inv = self.market.inventory
         sell_up, sell_down = self._has_pending_sells(live_order_ids, order_mgr)
 
-        if inv.shares_up > 0 and self.market.book_up.is_valid and not sell_up:
+        if inv.shares_up > 0 and self.market.book_up.has_bid and not sell_up:
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
@@ -339,7 +339,7 @@ class Engine:
                 reason="stale_book_reduce_up",
             ))
 
-        if inv.shares_down > 0 and self.market.book_down.is_valid and not sell_down:
+        if inv.shares_down > 0 and self.market.book_down.has_bid and not sell_down:
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
