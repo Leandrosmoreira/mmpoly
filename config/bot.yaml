@@ -7,7 +7,7 @@
 #   3 = moderado     (depois de aprender)
 #   5 = completo     (maximo, experiente)
 # ==========================================
-grid_levels: 3
+grid_levels: 1
 
 # === Grid Dinamico (detalhes — ignorado se grid_levels > 0) ===
 grid:
