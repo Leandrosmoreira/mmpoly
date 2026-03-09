@@ -44,6 +44,7 @@ class PolyClient:
         self.cfg = cfg
         self._client: Optional[ClobClient] = None
         self._funder: str = ""
+        self._last_place_error: str = ""  # "no_balance" when exchange rejects SELL
 
     def connect(self):
         """Initialize CLOB client with credentials from env.
@@ -134,7 +135,12 @@ class PolyClient:
                          error_code=ErrorCode.API_CONNECTION_FAILED)
 
     async def place_order(self, intent: Intent, token_id: str) -> Optional[LiveOrder]:
-        """Place a POST_ONLY limit order. Non-blocking."""
+        """Place a POST_ONLY limit order. Non-blocking.
+
+        Sets self._last_place_error to "no_balance" if the exchange rejects
+        with "not enough balance" — used by caller to detect phantom inventory.
+        """
+        self._last_place_error = ""
         now = time.time()
 
         if self.cfg.dry_run:
@@ -200,6 +206,9 @@ class PolyClient:
                 return None
 
         except Exception as e:
+            err_str = str(e).lower()
+            if "not enough balance" in err_str or "allowance" in err_str:
+                self._last_place_error = "no_balance"
             logger.error("place_order_error", error=str(e), market=intent.market_name,
                          side=intent.side, direction=intent.direction,
                          px=intent.price, sz=intent.size,

@@ -37,6 +37,27 @@ class InventoryTracker:
         # Persist after every fill for crash recovery
         self._save_snapshot()
 
+    def zero_side(self, market_name: str, side: Side):
+        """Zero out phantom inventory for a specific side.
+
+        Called when the exchange rejects a SELL with "not enough balance",
+        confirming that our local inventory is wrong (phantom shares).
+        """
+        inv = self.get(market_name)
+        if side == Side.UP:
+            old = inv.shares_up
+            inv.shares_up = 0.0
+            inv.avg_cost_up = 0.0
+        else:
+            old = inv.shares_down
+            inv.shares_down = 0.0
+            inv.avg_cost_down = 0.0
+        logger.warning("phantom_inventory_zeroed",
+                        market=market_name, side=side.value,
+                        old_shares=old,
+                        error_code=ErrorCode.PHANTOM_INVENTORY_ZEROED)
+        self._save_snapshot()
+
     def total_realized_pnl(self) -> float:
         return sum(inv.realized_pnl for inv in self._inventories.values())
 

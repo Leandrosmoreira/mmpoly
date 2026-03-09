@@ -98,3 +98,92 @@ class TestIdempotentFill:
 
         inv = tracker.get("test")
         assert inv.shares_up == 10.0
+
+
+class TestZeroSide:
+    """zero_side() clears phantom inventory for a specific side."""
+
+    def test_zero_down_clears_shares(self):
+        tracker = InventoryTracker(snapshot_path="test_inv.json")
+        fill = Fill(
+            order_id="order-1", market_name="test",
+            token_id="tok", side=Side.DOWN, direction=Direction.BUY,
+            price=0.79, size=5.0, ts=1000.0,
+        )
+        tracker.apply_fill(fill)
+        inv = tracker.get("test")
+        assert inv.shares_down == 5.0
+        assert inv.avg_cost_down == 0.79
+
+        tracker.zero_side("test", Side.DOWN)
+        assert inv.shares_down == 0.0
+        assert inv.avg_cost_down == 0.0
+        assert inv.net == 0.0
+
+    def test_zero_up_clears_shares(self):
+        tracker = InventoryTracker(snapshot_path="test_inv.json")
+        fill = Fill(
+            order_id="order-2", market_name="test",
+            token_id="tok", side=Side.UP, direction=Direction.BUY,
+            price=0.50, size=5.0, ts=1000.0,
+        )
+        tracker.apply_fill(fill)
+        inv = tracker.get("test")
+        assert inv.shares_up == 5.0
+
+        tracker.zero_side("test", Side.UP)
+        assert inv.shares_up == 0.0
+        assert inv.avg_cost_up == 0.0
+
+    def test_zero_preserves_other_side(self):
+        tracker = InventoryTracker(snapshot_path="test_inv.json")
+        fill_up = Fill(
+            order_id="order-3", market_name="test",
+            token_id="tok", side=Side.UP, direction=Direction.BUY,
+            price=0.50, size=5.0, ts=1000.0,
+        )
+        fill_down = Fill(
+            order_id="order-4", market_name="test",
+            token_id="tok", side=Side.DOWN, direction=Direction.BUY,
+            price=0.45, size=5.0, ts=1001.0,
+        )
+        tracker.apply_fill(fill_up)
+        tracker.apply_fill(fill_down)
+
+        tracker.zero_side("test", Side.DOWN)
+        inv = tracker.get("test")
+        assert inv.shares_up == 5.0  # preserved
+        assert inv.shares_down == 0.0  # zeroed
+        assert inv.avg_cost_up == 0.50  # preserved
+
+    def test_zero_preserves_realized_pnl(self):
+        tracker = InventoryTracker(snapshot_path="test_inv.json")
+        # Buy, then sell for profit
+        buy = Fill(
+            order_id="order-5", market_name="test",
+            token_id="tok", side=Side.UP, direction=Direction.BUY,
+            price=0.50, size=5.0, ts=1000.0,
+        )
+        sell = Fill(
+            order_id="order-6", market_name="test",
+            token_id="tok", side=Side.UP, direction=Direction.SELL,
+            price=0.55, size=5.0, ts=1001.0,
+        )
+        tracker.apply_fill(buy)
+        tracker.apply_fill(sell)
+
+        inv = tracker.get("test")
+        pnl_before = inv.realized_pnl
+        assert pnl_before == pytest.approx(0.25)
+
+        # Phantom inventory on DOWN — zero it
+        phantom = Fill(
+            order_id="order-7", market_name="test",
+            token_id="tok", side=Side.DOWN, direction=Direction.BUY,
+            price=0.79, size=5.0, ts=1002.0,
+        )
+        tracker.apply_fill(phantom)
+        tracker.zero_side("test", Side.DOWN)
+
+        # PnL should be preserved
+        assert inv.realized_pnl == pytest.approx(pnl_before)

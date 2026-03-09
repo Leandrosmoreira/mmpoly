@@ -402,6 +402,11 @@ class GabaBot:
                 if live_order:
                     live_order.level = intent.level  # propaga nivel do grid
                     self.order_mgr.register(live_order)
+                elif (intent.direction == Direction.SELL
+                      and self.poly_client._last_place_error == "no_balance"):
+                    # Exchange says we don't have these shares — phantom inventory.
+                    # Zero out this side to stop infinite SELL retry spam.
+                    self.inventory.zero_side(intent.market_name, intent.side)
 
             elif intent.type == IntentType.CANCEL_ORDER:
                 if intent.order_id:

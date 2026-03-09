@@ -42,6 +42,7 @@ class ErrorCode(str, Enum):
     KILL_SWITCH_CONSEC_LOSSES = "E4003"
     HARD_LIMIT_BREACHED = "E4004"
     PHANTOM_FILL_BLOCKED = "E4005"
+    PHANTOM_INVENTORY_ZEROED = "E4006"
 
     # --- Scanner (5xxx) ---
     GAMMA_API_TIMEOUT = "E5001"

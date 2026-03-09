@@ -38,15 +38,25 @@
 - **Commit:** `c82b77d`
 - **Status:** Resolved
 
-## Abertos
-
 ### BUG-005: Excecoes silenciosas em logger e inventory
 - **Severidade:** LOW
 - **Arquivo:** `bot/logger.py:40`, `data/inventory.py:65`
 - **Sintoma:** Erros de I/O em logging e snapshot persistence sao engolidos silenciosamente.
 - **Causa raiz:** `except Exception: pass` original.
 - **Fix:** Trocado por print para stderr. Implementado na Fase 1D.
+- **Commit:** `793e3cc`
 - **Status:** Resolved
+
+### BUG-007: SELL spam por inventario fantasma
+- **Severidade:** CRITICAL
+- **Arquivo:** `bot/main.py`, `execution/poly_client.py`, `data/inventory.py`
+- **Sintoma:** SELL DOWN a cada tick (~6s) com "not enough balance" (E2002) infinitamente. Bot nunca para de tentar.
+- **Causa raiz:** Fill inferido de cancel "matched" cria `pos_down=5` no inventario local, mas exchange nao tem as shares. SELL falha, nunca eh registrado como live order, quoter gera sell_levels=1 novamente no proximo tick → loop infinito.
+- **Trigger:** Bot reinicia com `inventory.json` corrompido (disco cheio) → fill inferred do primeiro cancel "matched" cria inventario fantasma.
+- **Fix:** Quando SELL falha com "not enough balance", `poly_client._last_place_error` sinaliza "no_balance". `_execute_intents()` detecta e chama `inventory.zero_side()` para zerar o inventario fantasma daquele lado. Novo error code E4006 (PHANTOM_INVENTORY_ZEROED).
+- **Status:** Resolved
+
+## Abertos
 
 ### BUG-006: Sem reconciliacao com exchange
 - **Severidade:** MEDIUM
