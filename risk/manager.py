@@ -6,6 +6,7 @@ import time
 import structlog
 
 from core.types import BotConfig, Intent, IntentType
+from core.errors import ErrorCode
 
 logger = structlog.get_logger()
 
@@ -44,7 +45,8 @@ class RiskManager:
             self.is_killed = True
             self.kill_reason = "; ".join(reasons)
             self.kill_ts = time.time()
-            logger.critical("kill_switch", reason=self.kill_reason)
+            logger.critical("kill_switch", reason=self.kill_reason,
+                           error_code=ErrorCode.KILL_SWITCH_PNL)
             return True
 
         return False
@@ -95,7 +97,8 @@ class RiskManager:
                     self.record_cancel()
                     filtered.append(intent)
                 else:
-                    logger.warning("cancel_rate_limited", market=intent.market_name)
+                    logger.warning("cancel_rate_limited", market=intent.market_name,
+                                  error_code=ErrorCode.CANCEL_RATE_LIMITED)
             elif intent.type == IntentType.CANCEL_ALL:
                 filtered.append(intent)
             else:

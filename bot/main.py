@@ -11,6 +11,7 @@ import asyncio
 import os
 import sys
 import time
+import uuid
 import yaml
 import structlog
 from dotenv import load_dotenv
@@ -42,6 +43,7 @@ from execution.order_manager import OrderManager
 from execution.ws_feed import WSFeed
 from execution.market_scanner import DiscoveredMarket, discover_all_active
 from risk.manager import RiskManager
+from core.errors import ErrorCode
 
 logger = structlog.get_logger()
 
@@ -306,7 +308,8 @@ class GabaBot:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("scanner_error", error=str(e))
+                logger.error("scanner_error", error=str(e),
+                             error_code=ErrorCode.SCANNER_ERROR)
 
     async def _warmup_books(self):
         for market in self.markets.values():
@@ -340,10 +343,15 @@ class GabaBot:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("tick_error", error=str(e), exc_info=True)
+                logger.error("tick_error", error=str(e), exc_info=True,
+                             error_code=ErrorCode.TICK_ERROR)
                 await asyncio.sleep(1.0)
 
     async def _tick(self):
+        cycle_id = uuid.uuid4().hex[:8]
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(cycle_id=cycle_id)
+
         now = time.time()
 
         # Expire old orders first
@@ -414,7 +422,8 @@ class GabaBot:
                                           order_id=order.order_id,
                                           market=order.market_name,
                                           side=order.side.value,
-                                          direction=order.direction.value)
+                                          direction=order.direction.value,
+                                          error_code=ErrorCode.PHANTOM_FILL_BLOCKED)
                         else:
                             fills_this_batch.add(market_key)
                             fill = Fill(

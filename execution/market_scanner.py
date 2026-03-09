@@ -14,6 +14,8 @@ import structlog
 from dataclasses import dataclass
 from typing import Optional
 
+from core.errors import ErrorCode
+
 logger = structlog.get_logger()
 
 GAMMA_API = "https://gamma-api.polymarket.com"
@@ -130,7 +132,8 @@ async def discover_market(
                 outcomes = outcomes_raw
 
             if len(clob_tokens) < 2 or len(outcomes) < 2:
-                logger.warning("invalid_market_tokens", slug=slug)
+                logger.warning("invalid_market_tokens", slug=slug,
+                               error_code=ErrorCode.INVALID_MARKET_TOKENS)
                 return None
 
             # Map outcomes to UP/DOWN
@@ -172,10 +175,12 @@ async def discover_market(
             )
 
     except asyncio.TimeoutError:
-        logger.warning("gamma_api_timeout", slug=slug)
+        logger.warning("gamma_api_timeout", slug=slug,
+                       error_code=ErrorCode.GAMMA_API_TIMEOUT)
         return None
     except Exception as e:
-        logger.error("discover_market_error", slug=slug, error=str(e))
+        logger.error("discover_market_error", slug=slug, error=str(e),
+                     error_code=ErrorCode.DISCOVER_MARKET_ERROR)
         return None
 
 
@@ -269,7 +274,8 @@ async def scan_loop(
                 await on_market_expired(cid)
 
         except Exception as e:
-            logger.error("scan_loop_error", error=str(e))
+            logger.error("scan_loop_error", error=str(e),
+                         error_code=ErrorCode.SCANNER_LOOP_ERROR)
 
         await asyncio.sleep(scan_interval_s)
 

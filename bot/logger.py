@@ -37,13 +37,15 @@ def setup_logging(log_dir: str = "logs"):
             # Snapshots go to pnl
             if event == "snapshot":
                 _log_files["pnl"].write(line)
-        except Exception:
-            pass  # Don't let logging errors kill the bot
+        except Exception as e:
+            import sys
+            print(f"LOGGING_ERROR: {e}", file=sys.stderr)
 
         return event_dict
 
     # Build processor chain
     processors = [
+        structlog.contextvars.merge_contextvars,  # auto-inject cycle_id etc.
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.format_exc_info,

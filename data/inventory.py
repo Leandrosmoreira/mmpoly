@@ -8,6 +8,7 @@ import structlog
 from pathlib import Path
 
 from core.types import Direction, Fill, Inventory, Side
+from core.errors import ErrorCode
 
 logger = structlog.get_logger()
 
@@ -62,8 +63,9 @@ class InventoryTracker:
             self._snapshot_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self._snapshot_path, "w") as f:
                 json.dump(snapshot, f)
-        except Exception:
-            pass  # Don't let persistence errors kill the bot
+        except Exception as e:
+            import sys
+            print(f"INVENTORY_SNAPSHOT_ERROR: {e}", file=sys.stderr)
 
     def load_snapshot(self, max_age_s: float = 900):
         """Load inventory snapshot from disk if recent enough.
@@ -91,4 +93,5 @@ class InventoryTracker:
         except FileNotFoundError:
             pass
         except Exception as e:
-            logger.warning("inventory_load_failed", error=str(e))
+            logger.warning("inventory_load_failed", error=str(e),
+                          error_code=ErrorCode.INVENTORY_LOAD_FAILED)

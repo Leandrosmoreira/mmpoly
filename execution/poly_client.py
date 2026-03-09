@@ -21,6 +21,7 @@ from py_clob_client.clob_types import ApiCreds, OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from core.types import BotConfig, Direction, Intent, LiveOrder, Side
+from core.errors import ErrorCode
 
 logger = structlog.get_logger()
 
@@ -121,14 +122,16 @@ class PolyClient:
                 logger.info("api_creds_derived",
                            api_key=(creds.api_key[:8] + "...") if creds and creds.api_key else "")
             except Exception as e:
-                logger.error("derive_api_key_failed", error=str(e))
+                logger.error("derive_api_key_failed", error=str(e),
+                             error_code=ErrorCode.API_DERIVE_KEY_FAILED)
                 raise
 
         try:
             self._client.get_ok()
             logger.info("poly_client_connected", wallet_type=wallet_type)
         except Exception as e:
-            logger.error("connection_check_failed", error=str(e))
+            logger.error("connection_check_failed", error=str(e),
+                         error_code=ErrorCode.API_CONNECTION_FAILED)
 
     async def place_order(self, intent: Intent, token_id: str) -> Optional[LiveOrder]:
         """Place a POST_ONLY limit order. Non-blocking."""
@@ -192,13 +195,15 @@ class PolyClient:
             else:
                 logger.warning("order_rejected", resp=resp, market=intent.market_name,
                               side=intent.side, direction=intent.direction,
-                              px=intent.price, sz=intent.size)
+                              px=intent.price, sz=intent.size,
+                              error_code=ErrorCode.ORDER_REJECTED)
                 return None
 
         except Exception as e:
             logger.error("place_order_error", error=str(e), market=intent.market_name,
                          side=intent.side, direction=intent.direction,
-                         px=intent.price, sz=intent.size)
+                         px=intent.price, sz=intent.size,
+                         error_code=ErrorCode.ORDER_PLACE_FAILED)
             return None
 
     async def cancel_order(self, order_id: str) -> str:
@@ -236,7 +241,8 @@ class PolyClient:
             elif resp:
                 logger.info("order_cancelled", order_id=order_id)
                 return "canceled"
-            logger.warning("cancel_failed", order_id=order_id, resp=resp)
+            logger.warning("cancel_failed", order_id=order_id, resp=resp,
+                          error_code=ErrorCode.CANCEL_FAILED)
             return "failed"
         except Exception as e:
             err_msg = str(e).lower()
@@ -246,7 +252,8 @@ class PolyClient:
             if "not found" in err_msg or "already" in err_msg:
                 logger.info("order_already_gone", order_id=order_id, error=str(e))
                 return "gone"
-            logger.error("cancel_error", order_id=order_id, error=str(e))
+            logger.error("cancel_error", order_id=order_id, error=str(e),
+                         error_code=ErrorCode.CANCEL_ERROR)
             return "failed"
 
     async def cancel_all(self) -> bool:
@@ -263,7 +270,8 @@ class PolyClient:
             logger.info("cancel_all_done", resp=resp)
             return True
         except Exception as e:
-            logger.error("cancel_all_error", error=str(e))
+            logger.error("cancel_all_error", error=str(e),
+                         error_code=ErrorCode.CANCEL_ALL_ERROR)
             return False
 
     async def get_order_book_async(self, token_id: str) -> Optional[dict]:
@@ -273,7 +281,8 @@ class PolyClient:
         try:
             return await asyncio.to_thread(self._client.get_order_book, token_id)
         except Exception as e:
-            logger.error("get_book_error", token_id=token_id[:16], error=str(e))
+            logger.error("get_book_error", token_id=token_id[:16], error=str(e),
+                         error_code=ErrorCode.GET_BOOK_ERROR)
             return None
 
     def get_order_book(self, token_id: str) -> Optional[dict]:
@@ -283,5 +292,6 @@ class PolyClient:
         try:
             return self._client.get_order_book(token_id)
         except Exception as e:
-            logger.error("get_book_error", token_id=token_id[:16], error=str(e))
+            logger.error("get_book_error", token_id=token_id[:16], error=str(e),
+                         error_code=ErrorCode.GET_BOOK_ERROR)
             return None

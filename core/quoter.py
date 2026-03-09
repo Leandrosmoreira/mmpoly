@@ -236,6 +236,13 @@ def compute_grid_quotes(
             level=lvl,
         ))
 
+    log.info("grid_computed",
+             side=side.value, regime=regime.value,
+             buy_levels=buy_levels, sell_levels=sell_levels,
+             quotes=len(quotes), pos=current_pos,
+             book_valid=book.is_valid, spread=round(book.spread, 4),
+             bid=book.best_bid, ask=book.best_ask)
+
     return quotes
 
 

@@ -27,6 +27,7 @@ from core.types import (
 )
 from core.quoter import compute_all_quotes
 from core.pair import check_pair
+from core.errors import ErrorCode
 
 if TYPE_CHECKING:
     from execution.order_manager import OrderManager
@@ -110,7 +111,8 @@ class Engine:
         # === Hard limit: para de cotar ===
         if abs(inv.net) > self.cfg.net_hard_limit:
             intents.extend(self._cancel_all_intents(live_order_ids, "net_hard_limit"))
-            logger.warning("hard_limit_breached", market=self.market.name, net=inv.net)
+            logger.warning("hard_limit_breached", market=self.market.name, net=inv.net,
+                          error_code=ErrorCode.HARD_LIMIT_BREACHED)
             return intents
 
         # === Transicoes REBALANCING ===
@@ -182,6 +184,14 @@ class Engine:
 
         if new_quotes:
             self._last_quote_ts = now
+
+        if intents:
+            logger.info("tick_summary",
+                        market=self.market.name, state=state.value,
+                        regime=regime.value, net=inv.net,
+                        place=sum(1 for i in intents if i.type == IntentType.PLACE_ORDER),
+                        cancel=sum(1 for i in intents if i.type == IntentType.CANCEL_ORDER),
+                        live=len(live_order_ids))
 
         return intents
 

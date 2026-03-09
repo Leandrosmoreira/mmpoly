@@ -13,6 +13,8 @@ import structlog
 import aiohttp
 from typing import Callable, Optional
 
+from core.errors import ErrorCode
+
 logger = structlog.get_logger()
 
 WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
@@ -47,7 +49,8 @@ class WSFeed:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("ws_error", error=str(e))
+                logger.error("ws_error", error=str(e),
+                             error_code=ErrorCode.WS_DISCONNECTED)
 
             if self._running:
                 logger.info("ws_reconnecting", delay=self._reconnect_delay)
@@ -86,7 +89,8 @@ class WSFeed:
                     self._subscribed_tokens.add(token_id)
                     logger.info("ws_subscribed_runtime", token_id=token_id[:16] + "...")
                 except Exception as e:
-                    logger.error("ws_subscribe_error", token_id=token_id[:16], error=str(e))
+                    logger.error("ws_subscribe_error", token_id=token_id[:16], error=str(e),
+                                 error_code=ErrorCode.WS_SUBSCRIBE_ERROR)
                     self._pending_subs.append(token_id)
         else:
             self._pending_subs.extend(new_tokens)
@@ -125,7 +129,8 @@ class WSFeed:
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     self._handle_message(msg.data)
                 elif msg.type == aiohttp.WSMsgType.ERROR:
-                    logger.error("ws_msg_error", error=str(self._ws.exception()))
+                    logger.error("ws_msg_error", error=str(self._ws.exception()),
+                                 error_code=ErrorCode.WS_MESSAGE_ERROR)
                     break
                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
                     break
@@ -133,7 +138,8 @@ class WSFeed:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error("ws_connection_error", error=str(e))
+            logger.error("ws_connection_error", error=str(e),
+                         error_code=ErrorCode.WS_CONNECTION_ERROR)
         finally:
             if self._session and not self._session.closed:
                 await self._session.close()
