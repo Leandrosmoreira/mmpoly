@@ -376,6 +376,12 @@ class GabaBot:
     # === Intent execution ===
 
     async def _execute_intents(self, intents: list):
+        # Track fills per market in this batch to prevent phantom fills.
+        # When BUY UP fills, cancel-on-fill targets BUY DOWN. If both are
+        # in the same expired batch, both could return "matched" — but only
+        # one side actually filled. Allow max 1 fill per market per batch.
+        fills_this_batch: set[str] = set()
+
         for intent in intents:
             if intent.type == IntentType.PLACE_ORDER:
                 market = self.markets.get(intent.market_name)
@@ -399,24 +405,30 @@ class GabaBot:
                     if status == "canceled":
                         self.risk_mgr.record_cancel()
                     elif status == "matched" and order:
-                        # Order was filled during cancel attempt.
-                        # This is the PRIMARY fill detection mechanism —
-                        # the WS only subscribes to "book" channel, not "user",
-                        # so fill events don't come via WebSocket.
-                        # Idempotency: InventoryTracker._applied_fills prevents
-                        # double-counting if the same order_id is processed twice.
-                        fill = Fill(
-                            order_id=order.order_id,
-                            market_name=order.market_name,
-                            token_id=order.token_id,
-                            side=order.side,
-                            direction=order.direction,
-                            price=order.price,
-                            size=order.remaining,
-                            ts=time.time(),
-                            is_maker=True,
-                        )
-                        self.handle_fill(fill)
+                        market_key = order.market_name
+                        if market_key in fills_this_batch:
+                            # Already detected a fill in this market during
+                            # this batch — skip to prevent phantom double fill.
+                            # The real fill already triggered cancel-on-fill.
+                            logger.warning("phantom_fill_blocked",
+                                          order_id=order.order_id,
+                                          market=order.market_name,
+                                          side=order.side.value,
+                                          direction=order.direction.value)
+                        else:
+                            fills_this_batch.add(market_key)
+                            fill = Fill(
+                                order_id=order.order_id,
+                                market_name=order.market_name,
+                                token_id=order.token_id,
+                                side=order.side,
+                                direction=order.direction,
+                                price=order.price,
+                                size=order.remaining,
+                                ts=time.time(),
+                                is_maker=True,
+                            )
+                            self.handle_fill(fill)
 
             elif intent.type == IntentType.CANCEL_ALL:
                 if intent.market_name == "ALL":

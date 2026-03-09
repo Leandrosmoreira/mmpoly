@@ -175,6 +175,12 @@ def compute_grid_quotes(
     spacing = g.level_spacing_ticks * tick  # ex: 2 * 0.01 = 0.02
 
     buy_levels, sell_levels = active_levels(cfg, regime, inv, side)
+
+    # Don't buy more when already holding a full level — sell first.
+    # Prevents "not enough balance" spam when USDC is tied up in positions.
+    if current_pos >= g.level_size:
+        buy_levels = 0
+
     quotes: list[Quote] = []
 
     # === Grid de COMPRA ===

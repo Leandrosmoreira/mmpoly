@@ -190,11 +190,15 @@ class PolyClient:
                            direction=intent.direction, px=intent.price, sz=intent.size)
                 return live
             else:
-                logger.warning("order_rejected", resp=resp, market=intent.market_name)
+                logger.warning("order_rejected", resp=resp, market=intent.market_name,
+                              side=intent.side, direction=intent.direction,
+                              px=intent.price, sz=intent.size)
                 return None
 
         except Exception as e:
-            logger.error("place_order_error", error=str(e), market=intent.market_name)
+            logger.error("place_order_error", error=str(e), market=intent.market_name,
+                         side=intent.side, direction=intent.direction,
+                         px=intent.price, sz=intent.size)
             return None
 
     async def cancel_order(self, order_id: str) -> str:
