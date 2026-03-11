@@ -64,6 +64,15 @@
 - **Fix:** REST book refresh periodico (30s) no `_tick()` como fallback para WS silencioso. Log `stale_book_idle` no engine para visibilidade.
 - **Status:** Resolved
 
+### BUG-009: cancel-on-fill create_task bypasses fills_this_batch
+- **Severidade:** CRITICAL
+- **Arquivo:** `bot/main.py`
+- **Sintoma:** Kill switch dispara por `consec_losses=6`. Phantom fills duplicados criam inventario fantasma → SELL falha → `phantom_inventory_zeroed` → contado como loss. `daily_pnl = -$2.15`.
+- **Causa raiz:** `handle_fill()` usava `asyncio.create_task(self._execute_intents(cancel_intents))` para cancel-on-fill. O `create_task` cria uma chamada SEPARADA de `_execute_intents` com seu proprio `fills_this_batch` vazio. Quando a task roda (durante um `await` do batch pai), a mesma ordem pode retornar "matched" novamente — mas o `fills_this_batch` da task eh novo/vazio, entao o phantom fill nao eh bloqueado.
+- **Sequencia:** BUY UP matched → fill → handle_fill → create_task(cancel BUY DOWN) → BUY DOWN matched no batch pai (phantom_fill_blocked ✓) → create_task roda → cancela BUY DOWN de novo → matched → fills_this_batch vazio → fill aceito ✗ → inventario fantasma.
+- **Fix:** `handle_fill()` agora retorna cancel intents (em vez de create_task). `_execute_intents()` usa deque como queue e processa cancel-on-fill INLINE, compartilhando o mesmo `fills_this_batch`.
+- **Status:** Resolved
+
 ## Abertos
 
 ### BUG-006: Sem reconciliacao com exchange

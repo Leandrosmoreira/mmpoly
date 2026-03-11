@@ -8,6 +8,7 @@ Supports two market modes:
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import os
 import sys
 import time
@@ -397,9 +398,16 @@ class GabaBot:
         # When BUY UP fills, cancel-on-fill targets BUY DOWN. If both are
         # in the same expired batch, both could return "matched" — but only
         # one side actually filled. Allow max 1 fill per market per batch.
+        #
+        # BUG-009 fix: use a queue so cancel-on-fill intents are processed
+        # INLINE (same fills_this_batch), not via asyncio.create_task which
+        # would create a separate batch allowing phantom double fills.
         fills_this_batch: set[str] = set()
+        queue: deque = deque(intents)
 
-        for intent in intents:
+        while queue:
+            intent = queue.popleft()
+
             if intent.type == IntentType.PLACE_ORDER:
                 market = self.markets.get(intent.market_name)
                 if not market:
@@ -451,7 +459,10 @@ class GabaBot:
                                 ts=time.time(),
                                 is_maker=True,
                             )
-                            self.handle_fill(fill)
+                            # BUG-009: process cancel-on-fill INLINE
+                            # (extends queue with same fills_this_batch)
+                            cancel_on_fill = self.handle_fill(fill)
+                            queue.extend(cancel_on_fill)
 
             elif intent.type == IntentType.CANCEL_ALL:
                 if intent.market_name == "ALL":
@@ -473,17 +484,24 @@ class GabaBot:
 
     # === Fill handling ===
 
-    def handle_fill(self, fill: Fill):
-        """Process a fill event. Called from WS trade handler or polling."""
+    def handle_fill(self, fill: Fill) -> list:
+        """Process a fill event. Returns cancel-on-fill intents for inline execution.
+
+        BUG-009: Previously used asyncio.create_task to execute cancel-on-fill,
+        which created a separate _execute_intents call with its own fills_this_batch.
+        This allowed the same order to be processed as "matched" twice (once blocked
+        as phantom in the parent batch, once accepted in the child task's fresh batch),
+        causing phantom inventory → losses → kill switch.
+
+        Now returns cancel intents so the caller can process them in the same batch,
+        sharing the same fills_this_batch set.
+        """
         # Update inventory
         self.inventory.apply_fill(fill)
         self.fills.add(fill)
 
-        # Cancel-on-fill
-        cancel_intents = self.order_mgr.on_fill(fill)
-        if cancel_intents:
-            # Schedule async cancels
-            asyncio.create_task(self._execute_intents(cancel_intents))
+        # Cancel-on-fill: get intents but DON'T execute here
+        cancel_intents = self.order_mgr.on_fill(fill) or []
 
         # Request requote on the engine for this market
         engine = self.engines.get(fill.market_name)
@@ -498,6 +516,8 @@ class GabaBot:
                     side=fill.side.value, direction=fill.direction.value,
                     px=fill.price, sz=fill.size, is_maker=fill.is_maker,
                     net=inv.net, realized_pnl=inv.realized_pnl)
+
+        return cancel_intents
 
     # === Snapshots ===
 
