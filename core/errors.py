@@ -19,6 +19,8 @@ class ErrorCode(str, Enum):
     WS_SUBSCRIBE_ERROR = "E1004"
     API_CONNECTION_FAILED = "E1005"
     API_DERIVE_KEY_FAILED = "E1006"
+    BINANCE_WS_DISCONNECTED = "E1010"
+    BINANCE_WS_ERROR = "E1011"
 
     # --- Orders (2xxx) ---
     ORDER_REJECTED = "E2001"

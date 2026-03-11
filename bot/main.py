@@ -46,6 +46,7 @@ from data.fills import FillsCache
 from execution.poly_client import PolyClient
 from execution.order_manager import OrderManager
 from execution.ws_feed import WSFeed
+from execution.binance_feed import BinanceFeed
 from execution.market_scanner import DiscoveredMarket, discover_all_active
 from risk.manager import RiskManager
 from core.errors import ErrorCode
@@ -88,6 +89,7 @@ class GabaBot:
         self._condition_to_name: dict[str, str] = {}
 
         self.ws_feed: WSFeed | None = None
+        self.binance_feed: BinanceFeed | None = None
         self._running = False
         self._last_snapshot_ts = 0.0
         self._last_book_refresh_ts = 0.0
@@ -275,6 +277,11 @@ class GabaBot:
                         book.ts, book.best_bid_sz, book.best_ask_sz,
                     )
 
+    def _on_btc_price(self, ts: float, price: float):
+        """Callback from BinanceFeed — propagate BTC price to all skew engines."""
+        for eng in self._skew_engines.values():
+            eng.update_underlying(ts, price)
+
     # === Main run ===
 
     async def run(self):
@@ -303,11 +310,19 @@ class GabaBot:
         # Warmup books via REST
         await self._warmup_books()
 
+        # Create Binance BTC feed for skew underlying_lead component
+        if self.cfg.skew.enabled:
+            self.binance_feed = BinanceFeed(
+                on_price=self._on_btc_price,
+            )
+
         # Run all loops concurrently
         try:
             tasks = [self._main_loop(), self.ws_feed.start()]
             if self._market_mode == "auto":
                 tasks.append(self._scanner_loop())
+            if self.binance_feed:
+                tasks.append(self.binance_feed.start())
             await asyncio.gather(*tasks)
         except asyncio.CancelledError:
             logger.info("bot_cancelled")
@@ -492,6 +507,26 @@ class GabaBot:
                     # Context
                     net=inv.net, t_remain=round(t_remain, 0))
 
+        # Shadow diff: log hypothetical price impact in ticks
+        tick = self.cfg.tick
+        for side_label, book, result in [
+            ("UP", market.book_up, result_up),
+            ("DOWN", market.book_down, result_dn),
+        ]:
+            if book.is_valid:
+                old_bid = book.best_bid + tick
+                new_bid = old_bid + result.reservation_adj + result.bid_adj
+                old_ask = book.best_ask - tick
+                new_ask = old_ask + result.reservation_adj + result.ask_adj
+                logger.info("skew_shadow_diff",
+                            market=market.name, side=side_label,
+                            old_bid=round(old_bid, 2),
+                            new_bid=round(new_bid, 2),
+                            old_ask=round(old_ask, 2),
+                            new_ask=round(new_ask, 2),
+                            diff_bid_ticks=round((new_bid - old_bid) / tick),
+                            diff_ask_ticks=round((new_ask - old_ask) / tick))
+
         if self.cfg.skew.shadow_mode:
             # Shadow: compute only, don't affect quotes
             engine.skew_up = None
@@ -647,6 +682,8 @@ class GabaBot:
 
         if self.ws_feed:
             await self.ws_feed.stop()
+        if self.binance_feed:
+            await self.binance_feed.stop()
 
         total_pnl = self.inventory.total_realized_pnl()
         logger.info("bot_shutdown_complete",
