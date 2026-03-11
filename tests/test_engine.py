@@ -208,3 +208,40 @@ class TestExitUsesHasBid:
         ]
         assert len(sells) >= 1
         assert sells[0].price == 0.48  # best_bid (taker in exit)
+
+
+class TestStaleBookNoInventory:
+    """Stale book + no inventory → empty intents (BUG-008 observability)."""
+
+    def test_stale_book_no_inventory_returns_empty(self, cfg, market_state):
+        market_state.state = BotState.QUOTING
+        market_state.inventory = Inventory()  # empty
+        # Make both books stale (10s old, stale_book_ms=5000)
+        market_state.book_up.ts = time.time() - 10.0
+        market_state.book_down.ts = time.time() - 10.0
+        engine = Engine(market_state, cfg)
+        engine._last_quote_ts = 0  # past throttle
+        order_mgr = make_order_mgr()
+
+        intents = engine.tick([], order_mgr)
+        assert len(intents) == 0
+
+    def test_stale_book_with_inventory_generates_sell(self, cfg, market_state):
+        market_state.state = BotState.QUOTING
+        market_state.inventory = Inventory(shares_down=5.0, avg_cost_down=0.45)
+        # Make both books stale
+        market_state.book_up.ts = time.time() - 10.0
+        market_state.book_down.ts = time.time() - 10.0
+        engine = Engine(market_state, cfg)
+        engine._last_quote_ts = 0
+        order_mgr = make_order_mgr()
+
+        intents = engine.tick([], order_mgr)
+        sells = [
+            i for i in intents
+            if i.type == IntentType.PLACE_ORDER
+            and i.direction == Direction.SELL
+        ]
+        assert len(sells) >= 1
+        assert sells[0].side == Side.DOWN
+        assert sells[0].reason.startswith("stale_book_reduce")

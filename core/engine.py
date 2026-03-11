@@ -149,6 +149,12 @@ class Engine:
             has_inventory = inv.shares_up > 0 or inv.shares_down > 0
             if has_inventory:
                 intents.extend(self._stale_book_reduce_intents(live_order_ids, order_mgr))
+            else:
+                logger.debug("stale_book_idle",
+                             market=self.market.name,
+                             up_age_ms=round((time.time() - book_up.ts) * 1000),
+                             down_age_ms=round((time.time() - book_down.ts) * 1000),
+                             error_code=ErrorCode.BOOK_STALE)
             return intents
 
         # === Grid: calcula quotes desejadas ===

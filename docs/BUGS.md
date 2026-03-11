@@ -56,6 +56,14 @@
 - **Fix:** Quando SELL falha com "not enough balance", `poly_client._last_place_error` sinaliza "no_balance". `_execute_intents()` detecta e chama `inventory.zero_side()` para zerar o inventario fantasma daquele lado. Novo error code E4006 (PHANTOM_INVENTORY_ZEROED).
 - **Status:** Resolved
 
+### BUG-008: Stale book mata quoting silenciosamente
+- **Severidade:** CRITICAL
+- **Arquivo:** `core/engine.py`, `bot/main.py`
+- **Sintoma:** Bot para de cotar apos ~60s. Nenhum erro nos logs. Apenas snapshots visiveis. Bot parece vivo mas nao coloca ordens.
+- **Causa raiz:** WS do Polymarket so envia book updates quando orderbook muda. Em mercados quietos, `book.ts` fica congelado no valor do warmup REST. Apos 60s (`stale_book_ms`), `is_stale()=True`. Engine retorna `[]` sem nenhum log quando `has_inventory=False`.
+- **Fix:** REST book refresh periodico (30s) no `_tick()` como fallback para WS silencioso. Log `stale_book_idle` no engine para visibilidade.
+- **Status:** Resolved
+
 ## Abertos
 
 ### BUG-006: Sem reconciliacao com exchange

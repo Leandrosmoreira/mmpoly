@@ -85,6 +85,8 @@ class GabaBot:
         self.ws_feed: WSFeed | None = None
         self._running = False
         self._last_snapshot_ts = 0.0
+        self._last_book_refresh_ts = 0.0
+        self._book_refresh_interval_s = 30.0
 
         # Manual mode: load static markets
         if self._market_mode == "manual":
@@ -315,7 +317,7 @@ class GabaBot:
         for market in self.markets.values():
             await self._warmup_market(market)
 
-    async def _warmup_market(self, market: MarketState):
+    async def _warmup_market(self, market: MarketState, silent: bool = False):
         for token_id in [market.token_up, market.token_down]:
             data = await self.poly_client.get_order_book_async(token_id)
             if data:
@@ -326,10 +328,11 @@ class GabaBot:
                         market.book_up = book
                     else:
                         market.book_down = book
-                logger.info("book_warmup", market=market.name,
-                           side="UP" if token_id == market.token_up else "DOWN",
-                           bid=book.best_bid if book else 0,
-                           ask=book.best_ask if book else 0)
+                if not silent:
+                    logger.info("book_warmup", market=market.name,
+                               side="UP" if token_id == market.token_up else "DOWN",
+                               bid=book.best_bid if book else 0,
+                               ask=book.best_ask if book else 0)
 
     # === Main decision loop ===
 
@@ -353,6 +356,12 @@ class GabaBot:
         structlog.contextvars.bind_contextvars(cycle_id=cycle_id)
 
         now = time.time()
+
+        # Periodic REST book refresh — fallback for quiet WS
+        if now - self._last_book_refresh_ts > self._book_refresh_interval_s:
+            for market in self.markets.values():
+                await self._warmup_market(market, silent=True)
+            self._last_book_refresh_ts = now
 
         # Expire old orders first
         expired_intents = self.order_mgr.get_expired_orders()
