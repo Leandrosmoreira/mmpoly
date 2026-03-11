@@ -73,6 +73,17 @@
 - **Fix:** `handle_fill()` agora retorna cancel intents (em vez de create_task). `_execute_intents()` usa deque como queue e processa cancel-on-fill INLINE, compartilhando o mesmo `fills_this_batch`.
 - **Status:** Resolved
 
+### BUG-010: record_fill_pnl recebe PnL cumulativo em vez de delta
+- **Severidade:** CRITICAL
+- **Arquivo:** `bot/main.py`
+- **Sintoma:** Kill switch dispara por `consec_losses=6` apos poucos fills. `daily_pnl` inflado (ex: -1.15 com perda real de -0.20). Bot para de operar desnecessariamente.
+- **Causa raiz:** `handle_fill()` passava `inv.realized_pnl` (PnL cumulativo do mercado) para `risk_mgr.record_fill_pnl()`. Consequencias:
+  1. `daily_pnl += cumulative` a cada fill → cresce geometricamente (ex: 5 fills × -0.20 = -1.00, mas perda real = -0.20)
+  2. `if pnl < 0: consecutive_losses += 1` → BUYs (que nao geram realized PnL) contam como loss se o mercado tem PnL cumulativo negativo
+  3. Kill switch dispara com `consec_losses > 5` muito rapido, mesmo sem perdas reais consecutivas
+- **Fix:** Adicionado `self._last_pnl: dict[str, float]` para rastrear PnL anterior por mercado. `delta_pnl = inv.realized_pnl - prev_pnl` calculado e passado ao risk manager. Agora so conta loss quando o fill especifico gera PnL negativo. Log `fill_detected` inclui `delta_pnl`.
+- **Status:** Resolved
+
 ## Abertos
 
 ### BUG-006: Sem reconciliacao com exchange

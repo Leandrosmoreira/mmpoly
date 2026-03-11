@@ -98,6 +98,10 @@ class GabaBot:
         # Skew engines: {token_id: SkewEngine}
         self._skew_engines: dict[str, SkewEngine] = {}
 
+        # BUG-010 fix: track last known realized_pnl per market
+        # to compute delta (not cumulative) for risk manager
+        self._last_pnl: dict[str, float] = {}
+
         # Manual mode: load static markets
         if self._market_mode == "manual":
             static_markets = self._markets_raw.get("markets", [])
@@ -653,14 +657,21 @@ class GabaBot:
         if engine:
             engine.request_requote()
 
-        # Track PnL in risk manager
+        # Track PnL in risk manager — BUG-010 fix: use DELTA pnl, not cumulative.
+        # Previously passed inv.realized_pnl (cumulative) which caused:
+        # 1. daily_pnl to grow geometrically (added cumulative on every fill)
+        # 2. consecutive_losses to trigger on BUYs (cumulative stays negative)
         inv = self.inventory.get(fill.market_name)
-        self.risk_mgr.record_fill_pnl(inv.realized_pnl)
+        prev_pnl = self._last_pnl.get(fill.market_name, 0.0)
+        delta_pnl = inv.realized_pnl - prev_pnl
+        self._last_pnl[fill.market_name] = inv.realized_pnl
+        self.risk_mgr.record_fill_pnl(delta_pnl)
 
         logger.info("fill_detected", market=fill.market_name,
                     side=fill.side.value, direction=fill.direction.value,
                     px=fill.price, sz=fill.size, is_maker=fill.is_maker,
-                    net=inv.net, realized_pnl=inv.realized_pnl)
+                    net=inv.net, realized_pnl=inv.realized_pnl,
+                    delta_pnl=round(delta_pnl, 4))
 
         return cancel_intents
 
