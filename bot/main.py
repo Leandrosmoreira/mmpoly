@@ -34,8 +34,12 @@ for _bp in [
         break
 
 from bot.logger import setup_logging, log_snapshot
-from core.types import BotConfig, BotState, Direction, Fill, GridConfig, IntentType, MarketState, Side, SomaConfig
+from core.types import (
+    BotConfig, BotState, Direction, Fill, GridConfig, IntentType,
+    MarketState, Side, SkewConfig, SkewResult, SkewTimeScaling, SkewWeights, SomaConfig,
+)
 from core.engine import Engine
+from core.skew import SkewEngine
 from data.book import BookCache
 from data.inventory import InventoryTracker
 from data.fills import FillsCache
@@ -89,6 +93,9 @@ class GabaBot:
         self._last_book_refresh_ts = 0.0
         self._book_refresh_interval_s = 30.0
 
+        # Skew engines: {token_id: SkewEngine}
+        self._skew_engines: dict[str, SkewEngine] = {}
+
         # Manual mode: load static markets
         if self._market_mode == "manual":
             static_markets = self._markets_raw.get("markets", [])
@@ -118,6 +125,24 @@ class GabaBot:
                         if hasattr(soma_cfg, sk):
                             setattr(soma_cfg, sk, sv)
                     cfg.soma = soma_cfg
+                elif k == "skew" and isinstance(v, dict):
+                    skew_cfg = SkewConfig()
+                    for sk, sv in v.items():
+                        if sk == "weights" and isinstance(sv, dict):
+                            w = SkewWeights()
+                            for wk, wv in sv.items():
+                                if hasattr(w, wk):
+                                    setattr(w, wk, wv)
+                            skew_cfg.weights = w
+                        elif sk == "time_scaling" and isinstance(sv, dict):
+                            ts = SkewTimeScaling()
+                            for tk, tv in sv.items():
+                                if hasattr(ts, tk):
+                                    setattr(ts, tk, tv)
+                            skew_cfg.time_scaling = ts
+                        elif hasattr(skew_cfg, sk):
+                            setattr(skew_cfg, sk, sv)
+                    cfg.skew = skew_cfg
                 elif hasattr(cfg, k):
                     setattr(cfg, k, v)
 
@@ -189,9 +214,16 @@ class GabaBot:
         self._token_to_market[market.token_up] = market.name
         self._token_to_market[market.token_down] = market.name
         self._condition_to_name[market.condition_id] = market.name
+
+        # Create skew engines per token (UP and DOWN get separate engines)
+        if self.cfg.skew.enabled:
+            self._skew_engines[market.token_up] = SkewEngine(self.cfg.skew)
+            self._skew_engines[market.token_down] = SkewEngine(self.cfg.skew)
+
         logger.info("market_registered", name=market.name,
                     condition_id=market.condition_id[:16] + "...",
-                    end_ts=market.end_ts)
+                    end_ts=market.end_ts,
+                    skew_enabled=self.cfg.skew.enabled)
 
     async def _remove_expired_markets(self):
         now = time.time()
@@ -216,6 +248,8 @@ class GabaBot:
             self._token_to_market.pop(market.token_up, None)
             self._token_to_market.pop(market.token_down, None)
             self._condition_to_name.pop(market.condition_id, None)
+            self._skew_engines.pop(market.token_up, None)
+            self._skew_engines.pop(market.token_down, None)
             self.engines.pop(name, None)
             self.markets.pop(name, None)
 
@@ -232,6 +266,14 @@ class GabaBot:
                     market.book_up = book
                 else:
                     market.book_down = book
+
+                # Feed skew engine with mid-price and imbalance data
+                skew_eng = self._skew_engines.get(token_id)
+                if skew_eng and book.is_valid:
+                    skew_eng.update_mid(book.ts, book.mid)
+                    skew_eng.update_imbalance(
+                        book.ts, book.best_bid_sz, book.best_ask_sz,
+                    )
 
     # === Main run ===
 
@@ -378,6 +420,10 @@ class GabaBot:
             market = self.markets[name]
             market.inventory = self.inventory.get(name)
 
+            # Compute skew before tick (feeds into quoter via engine)
+            if self.cfg.skew.enabled:
+                self._compute_skew(engine, market)
+
             # Pass live order IDs + order_mgr para cancel seletivo por nivel
             live_ids = self.order_mgr.get_order_ids_for_market(name)
             intents = engine.tick(live_ids, self.order_mgr)
@@ -390,6 +436,70 @@ class GabaBot:
         if now - self._last_snapshot_ts > self.cfg.snapshot_interval_s:
             self._log_snapshots()
             self._last_snapshot_ts = now
+
+    # === Skew computation ===
+
+    def _compute_skew(self, engine: Engine, market: MarketState):
+        """Compute directional skew for both tokens and set on engine.
+
+        In shadow_mode: computes and logs but passes None to engine,
+        so quoter uses empty SkewResult (zero adjustments).
+        In live mode: sets skew_up/skew_down on engine for quoter use.
+        """
+        inv = market.inventory
+        t_remain = market.time_remaining_s
+
+        skew_up_eng = self._skew_engines.get(market.token_up)
+        skew_dn_eng = self._skew_engines.get(market.token_down)
+
+        if not skew_up_eng or not skew_dn_eng:
+            return
+
+        spread_up = market.book_up.spread if market.book_up.is_valid else 0.10
+        spread_dn = market.book_down.spread if market.book_down.is_valid else 0.10
+
+        result_up = skew_up_eng.compute(
+            net=inv.net, soft_limit=self.cfg.net_soft_limit,
+            t_remain=t_remain, spread=spread_up,
+        )
+        result_dn = skew_dn_eng.compute(
+            net=inv.net, soft_limit=self.cfg.net_soft_limit,
+            t_remain=t_remain, spread=spread_dn,
+        )
+
+        # Log skew computation (always, even in shadow mode)
+        logger.info("skew_computed",
+                    market=market.name,
+                    shadow=self.cfg.skew.shadow_mode,
+                    # UP token
+                    up_raw=round(result_up.raw_score, 4),
+                    up_smooth=round(result_up.smoothed_score, 4),
+                    up_regime=result_up.regime,
+                    up_res_adj=round(result_up.reservation_adj, 4),
+                    up_bid_adj=round(result_up.bid_adj, 4),
+                    up_ask_adj=round(result_up.ask_adj, 4),
+                    up_vel=round(result_up.components.velocity, 4),
+                    up_imb=round(result_up.components.imbalance, 4),
+                    up_inv=round(result_up.components.inventory, 4),
+                    up_lead=round(result_up.components.underlying_lead, 4),
+                    # DOWN token
+                    dn_raw=round(result_dn.raw_score, 4),
+                    dn_smooth=round(result_dn.smoothed_score, 4),
+                    dn_regime=result_dn.regime,
+                    dn_res_adj=round(result_dn.reservation_adj, 4),
+                    dn_bid_adj=round(result_dn.bid_adj, 4),
+                    dn_ask_adj=round(result_dn.ask_adj, 4),
+                    # Context
+                    net=inv.net, t_remain=round(t_remain, 0))
+
+        if self.cfg.skew.shadow_mode:
+            # Shadow: compute only, don't affect quotes
+            engine.skew_up = None
+            engine.skew_down = None
+        else:
+            # Live: apply skew adjustments to quoter
+            engine.skew_up = result_up
+            engine.skew_down = result_dn
 
     # === Intent execution ===
 

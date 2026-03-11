@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from core.types import (
     BotConfig, BotState, Direction, Intent, IntentType,
-    MarketState, Quote, Side, TimeRegime,
+    MarketState, Quote, Side, SkewResult, TimeRegime,
 )
 from core.quoter import compute_all_quotes
 from core.pair import check_pair
@@ -46,6 +46,9 @@ class Engine:
         self.cfg = cfg
         self._last_quote_ts: float = 0.0
         self._requote_requested: bool = False
+        # Skew: set by main.py before each tick (None = no skew applied)
+        self.skew_up: SkewResult | None = None
+        self.skew_down: SkewResult | None = None
 
     def update_regime(self):
         """Update time regime based on remaining time."""
@@ -158,7 +161,10 @@ class Engine:
             return intents
 
         # === Grid: calcula quotes desejadas ===
-        new_quotes = compute_all_quotes(book_up, book_down, inv, regime, self.cfg)
+        new_quotes = compute_all_quotes(
+            book_up, book_down, inv, regime, self.cfg,
+            skew_up=self.skew_up, skew_down=self.skew_down,
+        )
 
         # === Cancel seletivo: so cancela niveis que mudaram de preco ===
         ids_to_cancel = self._selective_cancel(live_order_ids, new_quotes, order_mgr)

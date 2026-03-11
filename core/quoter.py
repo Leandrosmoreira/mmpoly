@@ -18,7 +18,7 @@ from __future__ import annotations
 import structlog
 
 from core.types import (
-    BotConfig, Direction, GridConfig, Inventory, Quote, Side, TimeRegime, TopOfBook,
+    BotConfig, Direction, GridConfig, Inventory, Quote, Side, SkewResult, TimeRegime, TopOfBook,
 )
 
 log = structlog.get_logger()
@@ -140,11 +140,22 @@ def compute_grid_quotes(
     regime: TimeRegime,
     cfg: BotConfig,
     price_adj: float = 0.0,
+    skew_reservation: float = 0.0,
+    skew_bid_adj: float = 0.0,
+    skew_ask_adj: float = 0.0,
 ) -> list[Quote]:
     """Computa quotes do grid para um token (UP ou DOWN).
 
     Grid de compra: nivel 0 = bid+tick, nivel 1 = bid+tick-spacing, ...
     Grid de venda:  nivel 0 = ask-tick, nivel 1 = ask-tick+spacing, ...
+
+    Price layers (applied in order):
+    1. Grid base (bid/ask +/- tick +/- spacing)
+    2. Soma check (price_adj): adj > 0 → BUY mais barato, SELL mais caro
+    3. Skew reservation (skew_reservation): shifts center (both BUY and SELL)
+    4. Skew side (skew_bid_adj / skew_ask_adj): asymmetric aggressiveness
+
+    Sign convention for skew: adj > 0 = raise price, adj < 0 = lower price.
     """
     if regime == TimeRegime.EXIT:
         return []
@@ -188,8 +199,14 @@ def compute_grid_quotes(
     # Nivel 1: nivel 0 - spacing
     # Nivel N: nivel 0 - N * spacing
     # Soma check: price_adj > 0 → BUY mais barato (menos fills quando overpriced)
+    # Skew: reservation shifts center, bid_adj adjusts buy aggressiveness
     for lvl in range(buy_levels):
-        px = round_price(book.best_bid + tick - lvl * spacing - price_adj)
+        px = round_price(
+            book.best_bid + tick - lvl * spacing
+            - price_adj           # soma: adj > 0 → buy cheaper
+            + skew_reservation    # skew: shifts center (positive = raise)
+            + skew_bid_adj        # skew: buy-specific (positive = raise = more aggressive)
+        )
 
         # POST_ONLY: nao pode cruzar o ask
         if px >= book.best_ask:
@@ -214,8 +231,14 @@ def compute_grid_quotes(
     # Nivel 1: nivel 0 + spacing
     # Nivel N: nivel 0 + N * spacing
     # Soma check: price_adj > 0 → SELL mais caro (mais fills quando overpriced)
+    # Skew: reservation shifts center, ask_adj adjusts sell aggressiveness
     for lvl in range(sell_levels):
-        px = round_price(book.best_ask - tick + lvl * spacing + price_adj)
+        px = round_price(
+            book.best_ask - tick + lvl * spacing
+            + price_adj           # soma: adj > 0 → sell more expensive
+            + skew_reservation    # skew: shifts center (positive = raise)
+            + skew_ask_adj        # skew: sell-specific (positive = raise = less aggressive)
+        )
 
         # POST_ONLY: nao pode cruzar o bid
         if px <= book.best_bid:
@@ -252,11 +275,35 @@ def compute_all_quotes(
     inv: Inventory,
     regime: TimeRegime,
     cfg: BotConfig,
+    skew_up: SkewResult | None = None,
+    skew_down: SkewResult | None = None,
 ) -> list[Quote]:
-    """Computa quotes do grid para UP e DOWN com soma check."""
+    """Computa quotes do grid para UP e DOWN com soma check + skew.
+
+    Price layers applied in order:
+    1. Grid base
+    2. Soma check (price_adj)
+    3. Skew reservation + bid/ask adjustments
+    """
     up_adj, down_adj = compute_soma_adjustment(book_up, book_down, cfg)
 
+    # Skew adjustments (default to zero if None or shadow mode)
+    s_up = skew_up or SkewResult()
+    s_dn = skew_down or SkewResult()
+
     quotes: list[Quote] = []
-    quotes.extend(compute_grid_quotes(book_up, Side.UP, inv, regime, cfg, price_adj=up_adj))
-    quotes.extend(compute_grid_quotes(book_down, Side.DOWN, inv, regime, cfg, price_adj=down_adj))
+    quotes.extend(compute_grid_quotes(
+        book_up, Side.UP, inv, regime, cfg,
+        price_adj=up_adj,
+        skew_reservation=s_up.reservation_adj,
+        skew_bid_adj=s_up.bid_adj,
+        skew_ask_adj=s_up.ask_adj,
+    ))
+    quotes.extend(compute_grid_quotes(
+        book_down, Side.DOWN, inv, regime, cfg,
+        price_adj=down_adj,
+        skew_reservation=s_dn.reservation_adj,
+        skew_bid_adj=s_dn.bid_adj,
+        skew_ask_adj=s_dn.ask_adj,
+    ))
     return quotes

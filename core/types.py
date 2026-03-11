@@ -69,6 +69,86 @@ class SomaConfig:
     aggression: float = 0.5            # 0.0-1.0: fracao da divergencia usada como offset
 
 
+# === Skew Config ===
+
+@dataclass
+class SkewWeights:
+    """Component weights for directional skew score. Must sum to ~1.0."""
+    velocity: float = 0.25             # local mid-price momentum
+    imbalance: float = 0.20            # bid/ask size imbalance
+    inventory: float = 0.20            # corrective inventory pressure
+    underlying_lead: float = 0.35      # BTC lead signal (highest weight for BTC 15m)
+
+
+@dataclass
+class SkewTimeScaling:
+    """Skew intensity multiplier per time regime."""
+    early: float = 0.40                # cauteloso, pouca confianca
+    mid: float = 0.70                  # grid completo, skew moderado
+    late: float = 1.00                 # maximo, precisa descarregar rapido
+    exit: float = 0.00                 # sem skew, so desova
+
+
+@dataclass
+class SkewConfig:
+    """Directional price skew indicator config.
+
+    Adjusts bid/ask prices based on momentum, inventory pressure,
+    book imbalance, and underlying lead signal (BTC via Binance).
+
+    Sign convention: adj > 0 = raise price, adj < 0 = lower price.
+    """
+    enabled: bool = False              # desligado por default (seguro)
+    shadow_mode: bool = True           # calcula sem afetar ordens
+
+    # Janelas temporais por componente
+    price_window_seconds: float = 20.0        # velocity window
+    imbalance_window_seconds: float = 8.0     # book imbalance (mais rapido)
+    underlying_window_seconds: float = 45.0   # BTC (mais suave)
+
+    ema_alpha: float = 0.22            # EMA smoothing (~4 amostras efetivas)
+
+    weights: SkewWeights = field(default_factory=SkewWeights)
+
+    # Normalization caps
+    max_velocity_per_sec: float = 0.004       # 0.4c/s = sinal maximo
+    max_underlying_move_pct: float = 0.0025   # 0.25%/min no BTC = sinal maximo
+
+    # Price adjustment limits
+    max_reservation_adj: float = 0.01         # 1 tick max para deslocar centro
+    max_side_adj: float = 0.005               # 0.5 tick max para agressividade por lado
+
+    # Regime thresholds
+    lateral_threshold: float = 0.12           # |score| abaixo = flat → scale 0.3x
+    strong_threshold: float = 0.35            # |score| acima = strong_trend
+
+    time_scaling: SkewTimeScaling = field(default_factory=SkewTimeScaling)
+
+
+@dataclass
+class SkewComponents:
+    """Individual component values of the skew score (all in [-1, +1])."""
+    velocity: float = 0.0
+    imbalance: float = 0.0
+    inventory: float = 0.0
+    underlying_lead: float = 0.0
+
+
+@dataclass
+class SkewResult:
+    """Output of SkewEngine.compute(). Used by quoter for price adjustments.
+
+    Sign convention: adj > 0 = raise price, adj < 0 = lower price.
+    """
+    raw_score: float = 0.0
+    smoothed_score: float = 0.0
+    regime: str = "flat"               # flat | moderate_trend | strong_trend | defensive
+    reservation_adj: float = 0.0       # desloca centro (bid E ask)
+    bid_adj: float = 0.0              # ajuste adicional para BUY
+    ask_adj: float = 0.0              # ajuste adicional para SELL
+    components: SkewComponents = field(default_factory=SkewComponents)
+
+
 # === Data Structures ===
 
 @dataclass
@@ -249,7 +329,6 @@ class BotConfig:
     order_size: float = 5.0        # compatibilidade (grid usa grid.level_size)
     min_spread: float = 0.02
     quote_ttl_ms: float = 5000.0
-    skew_factor: float = 2.0
     levels: int = 5                # alias para grid.max_levels
 
     # Grid dinamico
@@ -259,6 +338,9 @@ class BotConfig:
 
     # Soma check (mispricing UP+DOWN)
     soma: SomaConfig = field(default_factory=SomaConfig)
+
+    # Directional skew indicator
+    skew: SkewConfig = field(default_factory=SkewConfig)
 
     # Inventory
     net_soft_limit: float = 10.0   # ajustado para grid (era 15)

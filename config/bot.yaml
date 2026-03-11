@@ -21,6 +21,38 @@ grid:
 
 price_move_threshold: 0.01     # cancela nivel se preco mudou >= 1 tick
 
+# === Skew Direcional (trend/inventory/imbalance/BTC lead) ===
+skew:
+  enabled: true
+  shadow_mode: true              # calcula sem afetar ordens (logar diff)
+
+  price_window_seconds: 20       # velocity: janela de 20s
+  imbalance_window_seconds: 8    # book imbalance: 8s (mais rapido)
+  underlying_window_seconds: 45  # BTC lead: 45s (mais suave)
+
+  ema_alpha: 0.22                # smoothing (~4 amostras efetivas)
+
+  weights:
+    velocity: 0.25               # momentum local do mid-price
+    imbalance: 0.20              # desbalanceamento bid/ask
+    inventory: 0.20              # pressao corretiva de inventario
+    underlying_lead: 0.35        # sinal antecipado BTC (Binance)
+
+  max_velocity_per_sec: 0.004    # 0.4c/s = sinal maximo
+  max_underlying_move_pct: 0.0025  # 0.25%/min BTC = sinal maximo
+
+  max_reservation_adj: 0.01      # 1 tick max para deslocar centro
+  max_side_adj: 0.005            # 0.5 tick max para agressividade por lado
+
+  lateral_threshold: 0.12        # |score| abaixo = flat (scale 0.3x)
+  strong_threshold: 0.35         # |score| acima = strong_trend
+
+  time_scaling:
+    early: 0.40                  # >5min: cauteloso
+    mid: 0.70                    # 1-5min: moderado
+    late: 1.00                   # 30s-1min: maximo
+    exit: 0.00                   # <30s: sem skew
+
 # === Soma Check (mispricing UP+DOWN ≈ 1.0) ===
 soma:
   enabled: true
@@ -34,7 +66,6 @@ tick: 0.01
 order_size: 5                  # compatibilidade (grid usa grid.level_size)
 min_spread: 0.01               # spread minimo para entrar (BTC 15m tipicamente 1-2 ticks)
 quote_ttl_ms: 8000             # TTL das ordens: 8s (grid e menos agressivo em cancel)
-skew_factor: 2.0               # fator de skew de inventario
 
 # === Inventory ===
 net_soft_limit: 10             # inicia skew com 10 shares liquidos
