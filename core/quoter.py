@@ -143,6 +143,7 @@ def compute_grid_quotes(
     skew_reservation: float = 0.0,
     skew_bid_adj: float = 0.0,
     skew_ask_adj: float = 0.0,
+    suppress_buys: bool = False,
 ) -> list[Quote]:
     """Computa quotes do grid para um token (UP ou DOWN).
 
@@ -190,6 +191,10 @@ def compute_grid_quotes(
     # Don't buy more when already holding a full level — sell first.
     # Prevents "not enough balance" spam when USDC is tied up in positions.
     if current_pos >= g.level_size:
+        buy_levels = 0
+
+    # Combined ask filter: no edge when UP_ask + DOWN_ask >= 1.0
+    if suppress_buys:
         buy_levels = 0
 
     quotes: list[Quote] = []
@@ -291,6 +296,19 @@ def compute_all_quotes(
     s_up = skew_up or SkewResult()
     s_dn = skew_down or SkewResult()
 
+    # Combined ask filter: suppress buys when UP_ask + DOWN_ask >= fair_value.
+    # Buying both sides at combined cost >= 1.0 has zero edge (guaranteed loss after fees).
+    suppress_buys = False
+    if (book_up.best_ask > 0 and book_down.best_ask > 0
+            and cfg.soma.enabled):
+        combined_ask = book_up.best_ask + book_down.best_ask
+        if combined_ask >= cfg.soma.fair_value:
+            suppress_buys = True
+            log.info("buys_suppressed_no_edge",
+                     up_ask=book_up.best_ask, down_ask=book_down.best_ask,
+                     combined=round(combined_ask, 4),
+                     fair_value=cfg.soma.fair_value)
+
     quotes: list[Quote] = []
     quotes.extend(compute_grid_quotes(
         book_up, Side.UP, inv, regime, cfg,
@@ -298,6 +316,7 @@ def compute_all_quotes(
         skew_reservation=s_up.reservation_adj,
         skew_bid_adj=s_up.bid_adj,
         skew_ask_adj=s_up.ask_adj,
+        suppress_buys=suppress_buys,
     ))
     quotes.extend(compute_grid_quotes(
         book_down, Side.DOWN, inv, regime, cfg,
@@ -305,5 +324,6 @@ def compute_all_quotes(
         skew_reservation=s_dn.reservation_adj,
         skew_bid_adj=s_dn.bid_adj,
         skew_ask_adj=s_dn.ask_adj,
+        suppress_buys=suppress_buys,
     ))
     return quotes
