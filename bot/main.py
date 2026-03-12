@@ -194,9 +194,16 @@ class GabaBot:
     def _add_market_from_discovery(self, discovered: DiscoveredMarket):
         if discovered.condition_id in self._condition_to_name:
             return
-        if discovered.liquidity < self._min_liquidity:
-            return
+        # BUG-011: Removed liquidity filter. New 15-minute markets start with
+        # zero liquidity on Gamma API because no one has posted orders yet.
+        # We ARE the market maker — can't wait for liquidity to bootstrap.
+        # The old filter (liquidity < 1000) caused a chicken-and-egg problem:
+        # bot won't add market → market has no liquidity → bot won't add market.
         if discovered.time_remaining < self._min_time_remaining:
+            logger.info("market_rejected_time",
+                        slug=discovered.slug,
+                        time_remaining=f"{discovered.time_remaining:.0f}s",
+                        min_required=self._min_time_remaining)
             return
 
         name = f"{discovered.name}-{discovered.slug.split('-')[-1]}"
@@ -250,6 +257,10 @@ class GabaBot:
             inv = self.inventory.get(name)
             logger.info("market_expired", name=name, net=inv.net,
                        realized_pnl=inv.realized_pnl)
+
+            # BUG-011: unsubscribe WS tokens to prevent stale subscription leak
+            if self.ws_feed:
+                await self.ws_feed.unsubscribe([market.token_up, market.token_down])
 
             self._token_to_market.pop(market.token_up, None)
             self._token_to_market.pop(market.token_down, None)
@@ -321,13 +332,18 @@ class GabaBot:
             )
 
         # Run all loops concurrently
+        # BUG-011: use return_exceptions=True so one crashed task
+        # doesn't cancel all others (e.g. WS crash killing scanner)
         try:
             tasks = [self._main_loop(), self.ws_feed.start()]
             if self._market_mode == "auto":
                 tasks.append(self._scanner_loop())
             if self.binance_feed:
                 tasks.append(self.binance_feed.start())
-            await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for r in results:
+                if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
+                    logger.critical("task_crashed", error=str(r), error_type=type(r).__name__)
         except asyncio.CancelledError:
             logger.info("bot_cancelled")
         finally:
@@ -344,7 +360,10 @@ class GabaBot:
     async def _scanner_loop(self):
         while self._running:
             try:
-                await asyncio.sleep(self._scan_interval_s)
+                # BUG-011: scan faster when no markets are active (5s vs 30s)
+                # so the bot picks up new markets quickly after transitions
+                sleep_time = 5.0 if not self.markets else self._scan_interval_s
+                await asyncio.sleep(sleep_time)
                 await self._remove_expired_markets()
 
                 discovered = await discover_all_active(
@@ -418,6 +437,12 @@ class GabaBot:
         structlog.contextvars.bind_contextvars(cycle_id=cycle_id)
 
         now = time.time()
+
+        # BUG-011: warn when no active markets (waiting for scanner)
+        if not self.markets:
+            logger.warning("no_active_markets",
+                           msg="Waiting for scanner to discover markets")
+            return
 
         # Periodic REST book refresh — fallback for quiet WS
         if now - self._last_book_refresh_ts > self._book_refresh_interval_s:

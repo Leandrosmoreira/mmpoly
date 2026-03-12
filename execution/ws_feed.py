@@ -95,6 +95,30 @@ class WSFeed:
         else:
             self._pending_subs.extend(new_tokens)
 
+    async def unsubscribe(self, token_ids: list[str]):
+        """Unsubscribe from tokens (cleanup when market expires).
+
+        Removes from tracked sets so reconnect won't re-subscribe.
+        """
+        for token_id in token_ids:
+            self._subscribed_tokens.discard(token_id)
+            if token_id in self._initial_tokens:
+                self._initial_tokens.remove(token_id)
+            # Also remove from pending
+            self._pending_subs = [t for t in self._pending_subs if t != token_id]
+
+        # Send unsubscribe if connected (best-effort, ignore errors)
+        if self.is_connected:
+            for token_id in token_ids:
+                try:
+                    await self._ws.send_json({
+                        "type": "unsubscribe",
+                        "channel": "book",
+                        "assets_ids": [token_id],
+                    })
+                except Exception:
+                    pass  # best-effort cleanup
+
     async def _connect_and_listen(self):
         """Connect to WS and process messages."""
         self._session = aiohttp.ClientSession()

@@ -84,6 +84,25 @@
 - **Fix:** Adicionado `self._last_pnl: dict[str, float]` para rastrear PnL anterior por mercado. `delta_pnl = inv.realized_pnl - prev_pnl` calculado e passado ao risk manager. Agora so conta loss quando o fill especifico gera PnL negativo. Log `fill_detected` inclui `delta_pnl`.
 - **Status:** Resolved
 
+### BUG-011: Bot para de operar na transição entre mercados 15m
+- **Severidade:** CRITICAL
+- **Arquivo:** `bot/main.py`, `execution/ws_feed.py`
+- **Sintoma:** Bot opera normalmente no primeiro mercado 15m. Quando esse mercado expira e o scanner tenta descobrir o próximo, o bot fica idle para sempre. Requer restart manual do serviço.
+- **Causa raiz:** `_add_market_from_discovery()` tinha filtro `if discovered.liquidity < 1000: return` (silencioso). Mercados novos de 15m começam com liquidity=0 na Gamma API porque ninguém postou ordens ainda. Como o bot É o market maker, isso cria um problema chicken-and-egg: bot não entra → mercado não tem liquidez → bot não entra.
+- **Problemas secundários:**
+  1. Filtro de liquidez silencioso (sem log quando rejeitava)
+  2. `asyncio.gather` sem `return_exceptions=True` — crash de uma task matava todas
+  3. Scanner rodava a cada 30s mesmo sem mercados ativos (demora para descobrir novo)
+  4. Tokens de mercados expirados nunca eram unsubscribed do WS (leak)
+  5. `_tick()` não avisava quando não tinha mercados ativos
+- **Fix:**
+  1. Removido filtro de liquidez (market maker bootstraps liquidity)
+  2. Adicionado logging para rejeição por tempo (`market_rejected_time`) e idle (`no_active_markets`)
+  3. `asyncio.gather(*tasks, return_exceptions=True)` com log de task crashes
+  4. Scanner usa 5s interval quando `self.markets` está vazio (vs 30s normal)
+  5. `WSFeed.unsubscribe()` limpa tokens expirados + `_remove_expired_markets` chama unsubscribe
+- **Status:** Resolved
+
 ## Abertos
 
 ### BUG-006: Sem reconciliacao com exchange
