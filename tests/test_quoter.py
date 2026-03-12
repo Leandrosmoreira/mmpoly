@@ -264,37 +264,37 @@ class TestSomaAdjustment:
 
 
 class TestCombinedAskFilter:
-    """Suppress buys when UP_ask + DOWN_ask >= 1.0 (no edge)."""
+    """Suppress buys when UP_ask + DOWN_ask >= fair_value + threshold."""
 
-    def test_buys_suppressed_when_combined_ask_ge_one(self, cfg, inv_empty):
-        """No BUY quotes when UP_ask + DOWN_ask >= fair_value."""
-        cfg.soma = SomaConfig(enabled=True, fair_value=1.0)
+    def test_buys_suppressed_when_combined_ask_excessive(self, cfg, inv_empty):
+        """No BUY quotes when UP_ask + DOWN_ask >= fair_value + threshold."""
+        cfg.soma = SomaConfig(enabled=True, fair_value=1.0, threshold=0.03)
         book_up = TopOfBook(
             token_id="up", best_bid=0.49, best_bid_sz=100,
+            best_ask=0.53, best_ask_sz=100, ts=time.time(),
+        )
+        book_down = TopOfBook(
+            token_id="dn", best_bid=0.49, best_bid_sz=100,
+            best_ask=0.53, best_ask_sz=100, ts=time.time(),
+        )
+        # UP_ask=0.53 + DOWN_ask=0.53 = 1.06 >= 1.03 → suppress buys
+        quotes = compute_all_quotes(book_up, book_down, inv_empty,
+                                     TimeRegime.EARLY, cfg)
+        buy_quotes = [q for q in quotes if q.direction == Direction.BUY]
+        assert len(buy_quotes) == 0
+
+    def test_buys_allowed_normal_spread(self, cfg, inv_empty):
+        """BUY quotes allowed when combined asks within normal spread range."""
+        cfg.soma = SomaConfig(enabled=True, fair_value=1.0, threshold=0.03)
+        book_up = TopOfBook(
+            token_id="up", best_bid=0.50, best_bid_sz=100,
             best_ask=0.51, best_ask_sz=100, ts=time.time(),
         )
         book_down = TopOfBook(
             token_id="dn", best_bid=0.49, best_bid_sz=100,
             best_ask=0.51, best_ask_sz=100, ts=time.time(),
         )
-        # UP_ask=0.51 + DOWN_ask=0.51 = 1.02 >= 1.0 → suppress buys
-        quotes = compute_all_quotes(book_up, book_down, inv_empty,
-                                     TimeRegime.EARLY, cfg)
-        buy_quotes = [q for q in quotes if q.direction == Direction.BUY]
-        assert len(buy_quotes) == 0
-
-    def test_buys_allowed_when_combined_ask_lt_one(self, cfg, inv_empty):
-        """BUY quotes generated when UP_ask + DOWN_ask < fair_value."""
-        cfg.soma = SomaConfig(enabled=True, fair_value=1.0)
-        book_up = TopOfBook(
-            token_id="up", best_bid=0.44, best_bid_sz=100,
-            best_ask=0.48, best_ask_sz=100, ts=time.time(),
-        )
-        book_down = TopOfBook(
-            token_id="dn", best_bid=0.44, best_bid_sz=100,
-            best_ask=0.48, best_ask_sz=100, ts=time.time(),
-        )
-        # UP_ask=0.48 + DOWN_ask=0.48 = 0.96 < 1.0 → buys allowed
+        # UP_ask=0.51 + DOWN_ask=0.51 = 1.02 < 1.03 → buys allowed
         quotes = compute_all_quotes(book_up, book_down, inv_empty,
                                      TimeRegime.EARLY, cfg)
         buy_quotes = [q for q in quotes if q.direction == Direction.BUY]
@@ -302,18 +302,18 @@ class TestCombinedAskFilter:
 
     def test_sells_still_generated_when_buys_suppressed(self, cfg):
         """SELL quotes still work when buys are suppressed."""
-        cfg.soma = SomaConfig(enabled=True, fair_value=1.0)
+        cfg.soma = SomaConfig(enabled=True, fair_value=1.0, threshold=0.03)
         inv = Inventory(shares_up=5.0, avg_cost_up=0.50,
                         shares_down=5.0, avg_cost_down=0.50)
         book_up = TopOfBook(
             token_id="up", best_bid=0.49, best_bid_sz=100,
-            best_ask=0.53, best_ask_sz=100, ts=time.time(),
+            best_ask=0.55, best_ask_sz=100, ts=time.time(),
         )
         book_down = TopOfBook(
             token_id="dn", best_bid=0.47, best_bid_sz=100,
-            best_ask=0.51, best_ask_sz=100, ts=time.time(),
+            best_ask=0.53, best_ask_sz=100, ts=time.time(),
         )
-        # UP_ask=0.53 + DOWN_ask=0.51 = 1.04 >= 1.0 → suppress buys
+        # UP_ask=0.55 + DOWN_ask=0.53 = 1.08 >= 1.03 → suppress buys
         quotes = compute_all_quotes(book_up, book_down, inv,
                                      TimeRegime.EARLY, cfg)
         buy_quotes = [q for q in quotes if q.direction == Direction.BUY]
@@ -326,13 +326,13 @@ class TestCombinedAskFilter:
         cfg.soma = SomaConfig(enabled=False)
         book_up = TopOfBook(
             token_id="up", best_bid=0.49, best_bid_sz=100,
-            best_ask=0.53, best_ask_sz=100, ts=time.time(),
+            best_ask=0.55, best_ask_sz=100, ts=time.time(),
         )
         book_down = TopOfBook(
             token_id="dn", best_bid=0.49, best_bid_sz=100,
-            best_ask=0.53, best_ask_sz=100, ts=time.time(),
+            best_ask=0.55, best_ask_sz=100, ts=time.time(),
         )
-        # UP_ask + DOWN_ask = 1.06 >= 1.0, but soma disabled → buys allowed
+        # UP_ask + DOWN_ask = 1.10 >= 1.03, but soma disabled → buys allowed
         quotes = compute_all_quotes(book_up, book_down, inv_empty,
                                      TimeRegime.EARLY, cfg)
         buy_quotes = [q for q in quotes if q.direction == Direction.BUY]

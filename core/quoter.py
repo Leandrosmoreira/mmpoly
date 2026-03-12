@@ -296,18 +296,22 @@ def compute_all_quotes(
     s_up = skew_up or SkewResult()
     s_dn = skew_down or SkewResult()
 
-    # Combined ask filter: suppress buys when UP_ask + DOWN_ask >= fair_value.
-    # Buying both sides at combined cost >= 1.0 has zero edge (guaranteed loss after fees).
+    # Combined ask filter: suppress buys when UP_ask + DOWN_ask is excessively above fair_value.
+    # In a normal 1-tick spread market, combined asks ≈ 1.01-1.02 (fair_value + both spreads).
+    # Only suppress when combined cost is significantly above fair_value (>= threshold),
+    # indicating genuine mispricing rather than normal spread overhead.
     suppress_buys = False
     if (book_up.best_ask > 0 and book_down.best_ask > 0
             and cfg.soma.enabled):
         combined_ask = book_up.best_ask + book_down.best_ask
-        if combined_ask >= cfg.soma.fair_value:
+        # Threshold = fair_value + soma.threshold (default 0.03)
+        # Allows normal 1-2 tick spreads, blocks when truly overpriced
+        if combined_ask >= cfg.soma.fair_value + cfg.soma.threshold:
             suppress_buys = True
             log.info("buys_suppressed_no_edge",
                      up_ask=book_up.best_ask, down_ask=book_down.best_ask,
                      combined=round(combined_ask, 4),
-                     fair_value=cfg.soma.fair_value)
+                     threshold=round(cfg.soma.fair_value + cfg.soma.threshold, 4))
 
     quotes: list[Quote] = []
     quotes.extend(compute_grid_quotes(

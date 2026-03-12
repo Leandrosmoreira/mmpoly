@@ -64,7 +64,7 @@ soma:
 # === Quoting ===
 tick: 0.01
 order_size: 5                  # compatibilidade (grid usa grid.level_size)
-min_spread: 0.02               # spread minimo para entrar (1 tick = sem edge, precisa de 2+)
+min_spread: 0.01               # spread minimo (BTC 15m tipicamente tem 1 tick; skew protege)
 quote_ttl_ms: 8000             # TTL das ordens: 8s (grid e menos agressivo em cancel)
 
 # === Inventory ===
