@@ -249,10 +249,14 @@ class GabaBot:
 
             # Cancel all orders
             cancel_intents = self.order_mgr.cancel_all_for_market(name)
+            logger.info("market_transition_cancel", name=name,
+                        orders_to_cancel=len(cancel_intents))
             for ci in cancel_intents:
                 if ci.order_id:
-                    await self.poly_client.cancel_order(ci.order_id)
+                    status = await self.poly_client.cancel_order(ci.order_id)
                     self.order_mgr.remove(ci.order_id)
+                    logger.debug("market_transition_cancel_result",
+                                 order_id=ci.order_id, status=status)
 
             inv = self.inventory.get(name)
             logger.info("market_expired", name=name, net=inv.net,
@@ -261,6 +265,9 @@ class GabaBot:
             # BUG-011: unsubscribe WS tokens to prevent stale subscription leak
             if self.ws_feed:
                 await self.ws_feed.unsubscribe([market.token_up, market.token_down])
+                logger.info("market_transition_ws_unsub", name=name,
+                            token_up=market.token_up[:16] + "...",
+                            token_down=market.token_down[:16] + "...")
 
             self._token_to_market.pop(market.token_up, None)
             self._token_to_market.pop(market.token_down, None)
@@ -269,6 +276,8 @@ class GabaBot:
             self._skew_engines.pop(market.token_down, None)
             self.engines.pop(name, None)
             self.markets.pop(name, None)
+            logger.info("market_transition_cleanup_done", name=name,
+                        remaining_markets=len(self.markets))
 
     # === WS callback ===
 
@@ -378,11 +387,24 @@ class GabaBot:
                         # Subscribe new tokens to WS dynamically
                         if self.ws_feed:
                             await self.ws_feed.subscribe([m.token_up, m.token_down])
+                            logger.info("market_transition_ws_sub",
+                                        name=m.name,
+                                        token_up=m.token_up[:16] + "..." if len(m.token_up) > 16 else m.token_up,
+                                        token_down=m.token_down[:16] + "..." if len(m.token_down) > 16 else m.token_down)
 
                         # Warmup book for new market
                         market_name = self._condition_to_name.get(m.condition_id)
                         if market_name and market_name in self.markets:
-                            await self._warmup_market(self.markets[market_name])
+                            mkt = self.markets[market_name]
+                            await self._warmup_market(mkt)
+                            logger.info("market_transition_warmup",
+                                        name=market_name,
+                                        book_up_valid=mkt.book_up.is_valid,
+                                        book_down_valid=mkt.book_down.is_valid,
+                                        up_bid=mkt.book_up.best_bid,
+                                        up_ask=mkt.book_up.best_ask,
+                                        down_bid=mkt.book_down.best_bid,
+                                        down_ask=mkt.book_down.best_ask)
 
                 if new_count > 0:
                     logger.info("scanner_found_new", count=new_count,
@@ -475,6 +497,22 @@ class GabaBot:
             if intents:
                 intents = self.risk_mgr.filter_intents(intents)
                 await self._execute_intents(intents)
+            else:
+                # Log empty ticks periodically to diagnose stuck engines
+                if not hasattr(engine, '_empty_tick_count'):
+                    engine._empty_tick_count = 0
+                engine._empty_tick_count += 1
+                # Log every 20th empty tick (avoid spam, ~10s at 0.5s tick)
+                if engine._empty_tick_count % 20 == 1:
+                    logger.info("tick_empty",
+                                market=name,
+                                state=market.state.value,
+                                regime=market.regime.value,
+                                book_up_valid=market.book_up.is_valid,
+                                book_down_valid=market.book_down.is_valid,
+                                live_orders=len(live_ids),
+                                consecutive_empty=engine._empty_tick_count,
+                                time_remaining=f"{market.time_remaining_s:.0f}s")
 
         # Periodic snapshot
         if now - self._last_snapshot_ts > self.cfg.snapshot_interval_s:

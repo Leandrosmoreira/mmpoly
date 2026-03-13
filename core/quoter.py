@@ -180,6 +180,9 @@ def compute_grid_quotes(
         return []
 
     if book.spread < cfg.min_spread - 0.001:
+        log.debug("grid_skip_narrow_spread", side=side.value,
+                  spread=round(book.spread, 4), min_spread=cfg.min_spread,
+                  bid=book.best_bid, ask=book.best_ask)
         return []
 
     g = cfg.grid

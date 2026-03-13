@@ -52,6 +52,35 @@ class DiscoveredMarket:
     spread: float
 
 
+def _parse_json_field(raw) -> list:
+    """Parse a Gamma API field that may be a list, JSON string, or double-encoded.
+
+    BUG-012: Gamma API sometimes returns clobTokenIds/outcomes as:
+    - list: ["hash1", "hash2"] → already correct
+    - JSON string: '["hash1","hash2"]' → one json.loads
+    - double-encoded: '"[\\"hash1\\",\\"hash2\\"]"' → two json.loads
+    Handles all cases gracefully.
+    """
+    if isinstance(raw, list):
+        return raw
+    if not isinstance(raw, str):
+        return []
+    # First parse
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []
+    # If still a string after first parse, try again (double-encoded)
+    if isinstance(parsed, str):
+        try:
+            parsed = json.loads(parsed)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return []
+    if isinstance(parsed, list):
+        return parsed
+    return []
+
+
 def _build_slug(coin: str, interval: str, ts: Optional[int] = None) -> str:
     """Build market slug for a given coin, interval, and timestamp.
 
@@ -111,30 +140,28 @@ async def discover_market(
             m = markets[0]
 
             # Parse token IDs
-            # Gamma API may return clobTokenIds as JSON string or list
-            clob_tokens_raw = m.get("clobTokenIds", [])
-            if isinstance(clob_tokens_raw, str):
-                try:
-                    clob_tokens = json.loads(clob_tokens_raw)
-                except (json.JSONDecodeError, TypeError):
-                    clob_tokens = []
-            else:
-                clob_tokens = clob_tokens_raw
+            # Gamma API may return clobTokenIds as JSON string or list.
+            # BUG-012: can also be double-encoded — json.loads returns a string
+            # instead of a list. Need to parse again if result is still a string.
+            clob_tokens = _parse_json_field(m.get("clobTokenIds", []))
 
-            # Same for outcomes
-            outcomes_raw = m.get("outcomes", [])
-            if isinstance(outcomes_raw, str):
-                try:
-                    outcomes = json.loads(outcomes_raw)
-                except (json.JSONDecodeError, TypeError):
-                    outcomes = []
-            else:
-                outcomes = outcomes_raw
+            # Same for outcomes (same double-encoding risk)
+            outcomes = _parse_json_field(m.get("outcomes", []))
 
             if len(clob_tokens) < 2 or len(outcomes) < 2:
                 logger.warning("invalid_market_tokens", slug=slug,
+                               tokens_raw=str(m.get("clobTokenIds", ""))[:80],
+                               outcomes_raw=str(m.get("outcomes", ""))[:80],
                                error_code=ErrorCode.INVALID_MARKET_TOKENS)
                 return None
+
+            # BUG-012: validate token IDs look like real hashes (not single chars)
+            for i, tok in enumerate(clob_tokens[:2]):
+                if not isinstance(tok, str) or len(tok) < 10:
+                    logger.warning("invalid_token_id", slug=slug,
+                                   index=i, token_id=str(tok)[:20],
+                                   error_code=ErrorCode.INVALID_MARKET_TOKENS)
+                    return None
 
             # Map outcomes to UP/DOWN
             # outcomes[0] = "Up", outcomes[1] = "Down" (standard for crypto markets)

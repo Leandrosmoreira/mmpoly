@@ -76,6 +76,8 @@ class Engine:
 
         # Check cooldown
         if now < self.market.cooldown_until:
+            logger.debug("tick_skip_cooldown", market=self.market.name,
+                         remaining=f"{self.market.cooldown_until - now:.1f}s")
             return intents
 
         state = self.market.state
@@ -140,6 +142,9 @@ class Engine:
         # === Throttle re-quoting ===
         min_interval = self.cfg.quote_ttl_ms / 1000.0 * 0.8
         if now - self._last_quote_ts < min_interval and not self._requote_requested:
+            logger.debug("tick_skip_throttle", market=self.market.name,
+                         elapsed=f"{now - self._last_quote_ts:.2f}s",
+                         min_interval=f"{min_interval:.2f}s")
             return intents
 
         self._requote_requested = False
@@ -222,12 +227,32 @@ class Engine:
 
     def _can_start(self) -> bool:
         if not self.market.is_active:
+            logger.debug("can_start_blocked", market=self.market.name,
+                         reason="market_not_active")
             return False
         if self.market.time_remaining_s <= self.cfg.t_exit:
+            logger.debug("can_start_blocked", market=self.market.name,
+                         reason="time_exit",
+                         time_remaining=f"{self.market.time_remaining_s:.0f}s",
+                         t_exit=self.cfg.t_exit)
             return False
         if not self.market.book_up.is_valid:
+            logger.info("can_start_blocked", market=self.market.name,
+                        reason="book_up_invalid",
+                        bid=self.market.book_up.best_bid,
+                        ask=self.market.book_up.best_ask,
+                        bid_sz=self.market.book_up.best_bid_sz,
+                        ask_sz=self.market.book_up.best_ask_sz,
+                        ts=self.market.book_up.ts)
             return False
         if not self.market.book_down.is_valid:
+            logger.info("can_start_blocked", market=self.market.name,
+                        reason="book_down_invalid",
+                        bid=self.market.book_down.best_bid,
+                        ask=self.market.book_down.best_ask,
+                        bid_sz=self.market.book_down.best_bid_sz,
+                        ask_sz=self.market.book_down.best_ask_sz,
+                        ts=self.market.book_down.ts)
             return False
         return True
 
