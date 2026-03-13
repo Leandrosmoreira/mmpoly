@@ -121,13 +121,17 @@ class Engine:
             return intents
 
         # === Transicoes REBALANCING ===
+        # BUG-015: Rebalance when ANY side has inventory, not just when net
+        # exceeds soft limit. This ensures we always try to sell what we hold,
+        # even at a loss, instead of holding to expiry.
+        has_inventory = inv.shares_up > 0 or inv.shares_down > 0
         if abs(inv.net) > self.cfg.net_soft_limit:
             if state != BotState.REBALANCING:
                 self.market.state = BotState.REBALANCING
                 logger.info("state_change", market=self.market.name,
                            to_state="REBALANCING", net=inv.net)
         elif state == BotState.REBALANCING:
-            if abs(inv.net) < self.cfg.net_soft_limit * 0.5:
+            if abs(inv.net) < self.cfg.net_soft_limit * 0.5 and not has_inventory:
                 self.market.state = BotState.QUOTING
                 logger.info("state_change", market=self.market.name,
                            to_state="QUOTING", net=inv.net)

@@ -16,7 +16,7 @@ grid:
   level_size: 5                # 5 shares por nivel (minimo Polymarket)
   early_buy_levels: 1          # EARLY: 1 nivel de compra (cauteloso)
   early_sell_levels: 1         # EARLY: 1 nivel de venda
-  mid_buy_levels: 0            # MID: stop buying (adverse selection risk near expiry)
+  mid_buy_levels: 1            # MID: 1 nivel de compra (continua operando!)
   mid_sell_levels: 5
 
 price_move_threshold: 0.01     # cancela nivel se preco mudou >= 1 tick

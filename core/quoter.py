@@ -191,9 +191,14 @@ def compute_grid_quotes(
 
     buy_levels, sell_levels = active_levels(cfg, regime, inv, side)
 
-    # Don't buy more when already holding a full level — sell first.
-    # Prevents "not enough balance" spam when USDC is tied up in positions.
-    if current_pos >= g.level_size:
+    # BUG-015: Only suppress buys when at max_position, not at 1 level.
+    # Old logic: current_pos >= level_size (5) killed ALL buys after first fill.
+    # This made the bot one-shot: buy once → never buy again on that side.
+    # New logic: use max_position from config (respects grid_levels setting).
+    if current_pos >= cfg.max_position:
+        if buy_levels > 0:
+            log.info("buys_suppressed_max_pos", side=side.value,
+                     pos=current_pos, max_position=cfg.max_position)
         buy_levels = 0
 
     # Combined ask filter: no edge when UP_ask + DOWN_ask >= 1.0

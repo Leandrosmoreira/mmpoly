@@ -91,7 +91,8 @@ class TestRebalancingEntryExit:
         assert market_state.state == BotState.REBALANCING
 
     def test_exits_rebalancing(self, cfg, market_state):
-        market_state.inventory = Inventory(shares_up=3.0)  # net=3 < 10*0.5=5
+        # BUG-015: rebalancing only exits when net < threshold AND no inventory
+        market_state.inventory = Inventory(shares_up=0.0)  # net=0, no inventory
         market_state.state = BotState.REBALANCING
         engine = Engine(market_state, cfg)
         order_mgr = make_order_mgr()

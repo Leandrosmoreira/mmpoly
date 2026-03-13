@@ -136,14 +136,23 @@ class TestInventorySkew:
 
 
 class TestBuySuppressedWhenHolding:
-    """buy_levels=0 when current_pos >= level_size."""
+    """buy_levels=0 when current_pos >= max_position (BUG-015 fix)."""
 
-    def test_no_buys_when_holding(self, cfg, book_valid, inv_holding_up):
+    def test_buys_allowed_below_max_position(self, cfg, book_valid, inv_holding_up):
+        # BUG-015: With pos=5, max_position=50, buys should still be allowed
         quotes = compute_grid_quotes(
             book_valid, Side.UP, inv_holding_up, TimeRegime.MID, cfg
         )
         buys = [q for q in quotes if q.direction == Direction.BUY]
-        assert len(buys) == 0  # holding 5 >= level_size 5
+        assert len(buys) > 0  # pos=5 < max_position=50: keep buying
+
+    def test_no_buys_at_max_position(self, cfg, book_valid):
+        inv_maxed = Inventory(shares_up=cfg.max_position)
+        quotes = compute_grid_quotes(
+            book_valid, Side.UP, inv_maxed, TimeRegime.MID, cfg
+        )
+        buys = [q for q in quotes if q.direction == Direction.BUY]
+        assert len(buys) == 0  # at max_position: suppress buys
 
 
 class TestEmergencySellInvalidBook:
