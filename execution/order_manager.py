@@ -162,6 +162,10 @@ class OrderManager:
             for oid in list(self._orders)
         ]
 
+    def get_all_order_ids(self) -> list[str]:
+        """All live order IDs across all markets. BUG-014: for reconciliation."""
+        return list(self._orders.keys())
+
     def live_count(self, market_name: Optional[str] = None) -> int:
         if market_name:
             return len(self._by_market.get(market_name, set()))

@@ -613,6 +613,57 @@ class GabaBot:
             engine.skew_up = result_up
             engine.skew_down = result_dn
 
+    # === BUG-014: Orphan order reconciliation ===
+
+    async def _reconcile_orders(self):
+        """Detect and cancel orphan orders on the exchange.
+
+        BUG-014: When cancel_order returns "failed", the order is removed
+        from the local tracker but may still be alive on the exchange.
+        This method queries the exchange for open orders and cancels any
+        that the bot doesn't know about.
+        """
+        if not self.markets:
+            return
+
+        try:
+            # Query exchange for all open orders
+            exchange_ids = await self.poly_client.get_open_orders()
+            local_ids = set(self.order_mgr.get_all_order_ids())
+
+            # Orphans = on exchange but not in local tracker
+            orphans = set(exchange_ids) - local_ids
+            # Also include previously tracked orphans
+            orphans |= self._orphan_ids & set(exchange_ids)
+
+            if not orphans:
+                self._orphan_ids.clear()
+                return
+
+            # Safety: if too many orphans, something is very wrong
+            if len(orphans) > 20:
+                logger.critical("reconcile_too_many_orphans",
+                               count=len(orphans),
+                               error_code=ErrorCode.RECONCILE_CANCEL_ALL_SAFETY)
+                await self.poly_client.cancel_all()
+                self._orphan_ids.clear()
+                return
+
+            for oid in orphans:
+                status = await self.poly_client.cancel_order(oid)
+                logger.warning("orphan_cancelled",
+                              order_id=oid, status=status,
+                              error_code=ErrorCode.ORPHAN_ORDER_DETECTED)
+
+            self._orphan_ids -= orphans
+            logger.info("reconciliation_done",
+                       orphans_found=len(orphans),
+                       remaining_tracked=len(self._orphan_ids))
+
+        except Exception as e:
+            logger.error("reconcile_error", error=str(e),
+                        error_code=ErrorCode.RECONCILE_ERROR)
+
     # === Intent execution ===
 
     async def _execute_intents(self, intents: list):
