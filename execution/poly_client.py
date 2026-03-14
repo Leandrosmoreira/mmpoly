@@ -17,7 +17,7 @@ import structlog
 from typing import Optional
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import ApiCreds, OrderArgs, OrderType
+from py_clob_client.clob_types import ApiCreds, OpenOrderParams, OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from core.types import BotConfig, Direction, Intent, LiveOrder, Side
@@ -207,7 +207,11 @@ class PolyClient:
 
         except Exception as e:
             err_str = str(e).lower()
-            if "not enough balance" in err_str or "allowance" in err_str:
+            # BUG-017: distinguish "no balance" (maybe phantom) from
+            # "allowance" (token approval issue — shares ARE real).
+            if "allowance" in err_str:
+                self._last_place_error = "allowance"
+            elif "not enough balance" in err_str:
                 self._last_place_error = "no_balance"
             logger.error("place_order_error", error=str(e), market=intent.market_name,
                          side=intent.side, direction=intent.direction,
@@ -304,3 +308,31 @@ class PolyClient:
             logger.error("get_book_error", token_id=token_id[:16], error=str(e),
                          error_code=ErrorCode.GET_BOOK_ERROR)
             return None
+
+    async def get_open_orders(self, market_id: str = "") -> list[str]:
+        """Get open order IDs from the exchange. Non-blocking.
+
+        BUG-014: Used for reconciliation — detect orphan orders that
+        the bot lost track of but are still alive on the exchange.
+
+        Args:
+            market_id: optional condition_id to filter (empty = all)
+
+        Returns:
+            list of order_id strings currently open on the exchange.
+        """
+        if self.cfg.dry_run or self._client is None:
+            return []
+
+        try:
+            params = OpenOrderParams(market=market_id) if market_id else None
+            orders = await asyncio.to_thread(self._client.get_orders, params)
+            return [
+                o.get("id", o.get("order_id", ""))
+                for o in (orders or [])
+                if isinstance(o, dict) and o.get("status", "").lower() in ("live", "open", "active", "")
+            ]
+        except Exception as e:
+            logger.error("get_open_orders_error", error=str(e),
+                         error_code=ErrorCode.RECONCILE_ERROR)
+            return []

@@ -32,7 +32,8 @@ class RiskManager:
 
         reasons = []
 
-        if self.daily_pnl < self.cfg.max_daily_loss:
+        # BUG-019: use <= so exactly hitting the threshold also triggers
+        if self.daily_pnl <= self.cfg.max_daily_loss:
             reasons.append(f"daily_pnl={self.daily_pnl:.2f} < {self.cfg.max_daily_loss}")
 
         if self.reject_count > self.cfg.max_rejects:

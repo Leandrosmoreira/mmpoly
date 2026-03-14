@@ -60,6 +60,9 @@ class ErrorCode(str, Enum):
 
     # --- Adverse movement (4xxx cont.) ---
     ADVERSE_MOVEMENT = "E4010"
+    KILL_MID_EXECUTION = "E4011"   # BUG-019: kill switch triggered during intent execution
+    SELL_ALLOWANCE_ERROR = "E4012" # BUG-017: SELL failed due to token approval, not phantom
+    ZERO_SIDE_BLOCKED = "E4013"    # BUG-017: zero_side blocked (shares from live fills)
 
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"

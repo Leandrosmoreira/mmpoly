@@ -33,16 +33,16 @@ skew:
   ema_alpha: 0.22                # smoothing (~4 amostras efetivas)
 
   weights:
-    velocity: 0.25               # momentum local do mid-price
-    imbalance: 0.20              # desbalanceamento bid/ask
-    inventory: 0.20              # pressao corretiva de inventario
-    underlying_lead: 0.35        # sinal antecipado BTC (Binance)
+    velocity: 0.20               # momentum local do mid-price (era 0.25)
+    imbalance: 0.15              # desbalanceamento bid/ask (era 0.20)
+    inventory: 0.35              # pressao corretiva de inventario (era 0.20 — inventario deve dominar quando segurando risco)
+    underlying_lead: 0.30        # sinal antecipado BTC (Binance) (era 0.35)
 
   max_velocity_per_sec: 0.004    # 0.4c/s = sinal maximo
   max_underlying_move_pct: 0.0025  # 0.25%/min BTC = sinal maximo
 
-  max_reservation_adj: 0.02      # 2 ticks max para deslocar centro
-  max_side_adj: 0.01             # 1 tick max para agressividade por lado (0.005 arredondava a zero)
+  max_reservation_adj: 0.05      # 5 ticks max para deslocar centro (era 0.02 — insuficiente para BTC 15m volatilidade)
+  max_side_adj: 0.03             # 3 ticks max para agressividade por lado (era 0.01 — sub-tick com pipeline de atenuação)
 
   lateral_threshold: 0.12        # |score| abaixo = flat (scale 0.3x)
   strong_threshold: 0.35         # |score| acima = strong_trend

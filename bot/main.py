@@ -35,7 +35,7 @@ for _bp in [
 
 from bot.logger import setup_logging, log_snapshot
 from core.types import (
-    BotConfig, BotState, Direction, Fill, GridConfig, IntentType,
+    BotConfig, BotState, Direction, Fill, GridConfig, Intent, IntentType,
     MarketState, Side, SkewConfig, SkewResult, SkewTimeScaling, SkewWeights, SomaConfig,
 )
 from core.engine import Engine
@@ -101,6 +101,11 @@ class GabaBot:
         # BUG-010 fix: track last known realized_pnl per market
         # to compute delta (not cumulative) for risk manager
         self._last_pnl: dict[str, float] = {}
+
+        # BUG-014: orphan order tracking + reconciliation
+        self._orphan_ids: set[str] = set()  # order IDs where cancel failed
+        self._last_reconcile_ts = 0.0
+        self._reconcile_interval_s = 60.0   # check exchange every 60s
 
         # Manual mode: load static markets
         if self._market_mode == "manual":
@@ -472,6 +477,11 @@ class GabaBot:
                 await self._warmup_market(market, silent=True)
             self._last_book_refresh_ts = now
 
+        # BUG-014: periodic order reconciliation — detect orphan orders
+        if now - self._last_reconcile_ts > self._reconcile_interval_s:
+            await self._reconcile_orders()
+            self._last_reconcile_ts = now
+
         # Expire old orders first
         expired_intents = self.order_mgr.get_expired_orders()
         if expired_intents:
@@ -631,11 +641,24 @@ class GabaBot:
                 if live_order:
                     live_order.level = intent.level  # propaga nivel do grid
                     self.order_mgr.register(live_order)
-                elif (intent.direction == Direction.SELL
-                      and self.poly_client._last_place_error == "no_balance"):
-                    # Exchange says we don't have these shares — phantom inventory.
-                    # Zero out this side to stop infinite SELL retry spam.
-                    self.inventory.zero_side(intent.market_name, intent.side)
+                elif intent.direction == Direction.SELL and self.poly_client._last_place_error in ("no_balance", "allowance"):
+                    # BUG-017: Only zero inventory if shares came from snapshot (crash recovery),
+                    # NOT from live fills in this session. Live fills are confirmed real
+                    # via cancel-matched detection. "allowance" errors mean the token exists
+                    # but needs contract approval — never zero for those.
+                    if self.poly_client._last_place_error == "allowance":
+                        logger.warning("sell_allowance_error",
+                                       market=intent.market_name,
+                                       side=intent.side.value,
+                                       msg="Token needs approval, shares are real — NOT zeroing")
+                    elif self._has_live_fills(intent.market_name, intent.side):
+                        logger.warning("zero_side_blocked",
+                                       market=intent.market_name,
+                                       side=intent.side.value,
+                                       msg="Shares from live fills — NOT zeroing phantom")
+                    else:
+                        # No live fills: inventory came from snapshot, likely phantom
+                        self.inventory.zero_side(intent.market_name, intent.side)
 
             elif intent.type == IntentType.CANCEL_ORDER:
                 if intent.order_id:
@@ -644,7 +667,18 @@ class GabaBot:
                     status = await self.poly_client.cancel_order(intent.order_id)
                     # Always remove from manager to prevent infinite cancel loops
                     self.order_mgr.remove(intent.order_id)
-                    if status == "canceled":
+                    # BUG-014: track orphans when cancel fails
+                    # Order removed from local tracker but may still be
+                    # alive on exchange. Reconciliation will clean these up.
+                    if status == "failed":
+                        self._orphan_ids.add(intent.order_id)
+                        logger.warning("orphan_order_tracked",
+                                       order_id=intent.order_id,
+                                       market=intent.market_name,
+                                       reason=intent.reason,
+                                       error_code=ErrorCode.ORPHAN_ORDER_DETECTED)
+                    elif status == "canceled":
+                        self._orphan_ids.discard(intent.order_id)
                         self.risk_mgr.record_cancel()
                     elif status == "matched" and order:
                         market_key = order.market_name
@@ -676,6 +710,28 @@ class GabaBot:
                             cancel_on_fill = self.handle_fill(fill)
                             queue.extend(cancel_on_fill)
 
+                            # BUG-019: re-check kill switch after each fill.
+                            # Previously, filter_intents() ran BEFORE execution,
+                            # so fills during execution could push PnL past
+                            # threshold without triggering kill until next tick.
+                            if self.risk_mgr.check_kill():
+                                # Drain remaining place orders, keep only cancels
+                                remaining = deque()
+                                while queue:
+                                    q_intent = queue.popleft()
+                                    if q_intent.type in (IntentType.CANCEL_ORDER, IntentType.CANCEL_ALL, IntentType.KILL_SWITCH):
+                                        remaining.append(q_intent)
+                                queue = remaining
+                                queue.append(Intent(
+                                    type=IntentType.KILL_SWITCH,
+                                    market_name="ALL",
+                                    reason=self.risk_mgr.kill_reason,
+                                ))
+                                logger.critical("kill_mid_execution",
+                                               daily_pnl=self.risk_mgr.daily_pnl,
+                                               reason=self.risk_mgr.kill_reason)
+                                break
+
             elif intent.type == IntentType.CANCEL_ALL:
                 if intent.market_name == "ALL":
                     await self.poly_client.cancel_all()
@@ -695,6 +751,18 @@ class GabaBot:
                 self._running = False
 
     # === Fill handling ===
+
+    def _has_live_fills(self, market_name: str, side: Side) -> bool:
+        """Check if we have fills from THIS session for a market+side.
+
+        BUG-017: Used to distinguish real inventory (from live fills)
+        vs phantom inventory (from crash-recovery snapshot). If live fills
+        exist, the shares are confirmed real and should NOT be zeroed.
+        """
+        for fill in self.fills.for_market(market_name):
+            if fill.side == side and fill.direction == Direction.BUY:
+                return True
+        return False
 
     def handle_fill(self, fill: Fill) -> list:
         """Process a fill event. Returns cancel-on-fill intents for inline execution.
