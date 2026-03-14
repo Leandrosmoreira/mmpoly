@@ -147,8 +147,35 @@ class TestPlaceOrderAutoApprove:
         # Should NOT have tried to approve again
         mock_clob.update_balance_allowance.assert_not_called()
 
-    def test_balance_error_no_retry(self):
-        """'not enough balance' without 'allowance' → no auto-approve."""
+    def test_balance_error_buy_no_retry(self):
+        """BUY 'not enough balance' → no auto-approve (USDC issue, not token).
+
+        BUG-022: For BUY orders, balance errors = insufficient USDC.
+        """
+        cfg = BotConfig(dry_run=False)
+        client = PolyClient(cfg)
+        mock_clob = MagicMock()
+
+        mock_clob.create_order.return_value = {"signed": True}
+        mock_clob.post_order.side_effect = Exception(
+            "not enough balance"
+        )
+        client._client = mock_clob
+
+        intent = Intent(type=IntentType.PLACE_ORDER, market_name="btc-15m-test",
+                        side=Side.UP, direction=Direction.BUY,
+                        price=0.50, size=5.0)
+        result = run(client.place_order(intent, "token_up_abc"))
+
+        assert result is None
+        assert client._last_place_error == "no_balance"
+        mock_clob.update_balance_allowance.assert_not_called()
+
+    def test_balance_error_sell_tries_approve(self):
+        """SELL 'not enough balance' → auto-approve + retry.
+
+        BUG-022: For SELL orders, balance errors = token approval needed.
+        """
         cfg = BotConfig(dry_run=False)
         client = PolyClient(cfg)
         mock_clob = MagicMock()
@@ -163,8 +190,9 @@ class TestPlaceOrderAutoApprove:
         result = run(client.place_order(intent, "token_up_abc"))
 
         assert result is None
-        assert client._last_place_error == "no_balance"
-        mock_clob.update_balance_allowance.assert_not_called()
+        assert client._last_place_error == "allowance"
+        # Should have tried approve (but retry will also fail)
+        mock_clob.update_balance_allowance.assert_called_once()
 
     def test_dry_run_sell_works(self):
         """Dry run mode should work for SELL orders."""

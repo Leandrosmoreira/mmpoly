@@ -37,8 +37,28 @@ class TestPolyClientErrorSeparation:
         self.cfg = BotConfig(dry_run=True)
         self.client = PolyClient(self.cfg)
 
-    def test_no_balance_error(self):
-        """'not enough balance' should set _last_place_error = 'no_balance'."""
+    def test_no_balance_error_on_buy(self):
+        """BUY 'not enough balance' should set _last_place_error = 'no_balance'.
+
+        BUG-022: For BUY orders, balance errors mean insufficient USDC.
+        """
+        self.client.cfg = BotConfig(dry_run=False)
+        self.client._client = MagicMock()
+        self.client._client.create_order = MagicMock(
+            side_effect=Exception("not enough balance to place order")
+        )
+        intent = Intent(type=IntentType.PLACE_ORDER, market_name="test",
+                        side=Side.UP, direction=Direction.BUY,
+                        price=0.55, size=5.0)
+        result = _run(self.client.place_order(intent, "token123"))
+        assert result is None
+        assert self.client._last_place_error == "no_balance"
+
+    def test_no_balance_error_on_sell(self):
+        """SELL 'not enough balance' should set _last_place_error = 'allowance'.
+
+        BUG-022: For SELL orders, balance errors = token approval needed.
+        """
         self.client.cfg = BotConfig(dry_run=False)
         self.client._client = MagicMock()
         self.client._client.create_order = MagicMock(
@@ -49,7 +69,7 @@ class TestPolyClientErrorSeparation:
                         price=0.55, size=5.0)
         result = _run(self.client.place_order(intent, "token123"))
         assert result is None
-        assert self.client._last_place_error == "no_balance"
+        assert self.client._last_place_error == "allowance"
 
     def test_allowance_error(self):
         """'allowance' error should set _last_place_error = 'allowance', NOT 'no_balance'."""

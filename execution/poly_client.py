@@ -247,21 +247,36 @@ class PolyClient:
 
         except Exception as e:
             err_str = str(e).lower()
-            # BUG-017: distinguish "no balance" (maybe phantom) from
-            # "allowance" (token approval issue — shares ARE real).
-            if "allowance" in err_str:
-                self._last_place_error = "allowance"
-                # BUG-020: Auto-approve and retry once on allowance error
-                if token_id not in self._approved_tokens:
-                    logger.warning("auto_approve_retry",
-                                  token_id=token_id[:16] + "...",
+            is_balance_error = ("not enough balance" in err_str
+                                or "allowance" in err_str)
+
+            if is_balance_error:
+                if intent.direction == Direction.SELL:
+                    # BUG-020: SELL failing = token approval needed.
+                    # The Polymarket error "not enough balance / allowance"
+                    # is ambiguous — for SELL it means token not approved.
+                    self._last_place_error = "allowance"
+                    if token_id not in self._approved_tokens:
+                        logger.warning("auto_approve_retry",
+                                      token_id=token_id[:16] + "...",
+                                      market=intent.market_name,
+                                      side=intent.side)
+                        approved = await self.approve_token(token_id)
+                        if approved:
+                            return await self.place_order(intent, token_id)
+                else:
+                    # BUG-022: BUY failing = insufficient USDC collateral.
+                    # Don't try token approval — the wallet just doesn't
+                    # have enough USDC to place this order.
+                    self._last_place_error = "no_balance"
+                    logger.warning("insufficient_usdc",
                                   market=intent.market_name,
-                                  side=intent.side)
-                    approved = await self.approve_token(token_id)
-                    if approved:
-                        return await self.place_order(intent, token_id)
-            elif "not enough balance" in err_str:
-                self._last_place_error = "no_balance"
+                                  side=intent.side.value if intent.side else "?",
+                                  px=intent.price, sz=intent.size,
+                                  cost=round(intent.price * intent.size, 2),
+                                  error_code=ErrorCode.ORDER_PLACE_FAILED)
+                    return None
+
             logger.error("place_order_error", error=str(e), market=intent.market_name,
                          side=intent.side, direction=intent.direction,
                          px=intent.price, sz=intent.size,
