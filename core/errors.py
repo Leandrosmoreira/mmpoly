@@ -67,6 +67,8 @@ class ErrorCode(str, Enum):
     TOKEN_APPROVAL_FAILED = "E4014"   # BUG-020: token approval failed
     CROSSES_BOOK_CLAMPED = "E2010"   # BUG-021: order price clamped to avoid crossing book
     CROSSES_BOOK_SKIPPED = "E2011"   # BUG-021: order skipped — no valid price after clamp
+    RESIDUAL_SELL_FOK = "E2012"      # BUG-023: residual shares < min sold via FOK
+    ORDER_SIZE_TOO_SMALL = "E2013"   # BUG-023: BUY size < min, skipped
 
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"

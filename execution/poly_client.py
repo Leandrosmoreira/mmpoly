@@ -24,6 +24,7 @@ from py_clob_client.order_builder.constants import BUY, SELL
 
 from core.types import BotConfig, Direction, Intent, LiveOrder, Side
 from core.errors import ErrorCode
+from core.quoter import MIN_ORDER_SIZE
 
 logger = structlog.get_logger()
 
@@ -204,6 +205,25 @@ class PolyClient:
         if self._client is None:
             return None
 
+        # BUG-023: Handle residual shares < MIN_ORDER_SIZE.
+        # SELL < 5 shares → FOK (fill-or-kill, market sell to liquidate).
+        # BUY < 5 shares → skip (exchange will reject anyway).
+        is_residual = intent.size > 0 and intent.size < MIN_ORDER_SIZE
+        if is_residual and intent.direction == Direction.BUY:
+            logger.info("order_size_too_small",
+                        market=intent.market_name, side=intent.side,
+                        sz=intent.size, min_size=MIN_ORDER_SIZE,
+                        error_code=ErrorCode.ORDER_SIZE_TOO_SMALL)
+            return None
+
+        order_type = OrderType.GTC
+        if is_residual and intent.direction == Direction.SELL:
+            order_type = OrderType.FOK
+            logger.info("market_sell_residual",
+                        market=intent.market_name, side=intent.side,
+                        px=intent.price, sz=intent.size,
+                        error_code=ErrorCode.RESIDUAL_SELL_FOK)
+
         try:
             poly_side = BUY if intent.direction == Direction.BUY else SELL
 
@@ -218,7 +238,7 @@ class PolyClient:
                 self._client.create_order, order_args
             )
             resp = await asyncio.to_thread(
-                self._client.post_order, signed_order, OrderType.GTC
+                self._client.post_order, signed_order, order_type
             )
 
             if resp and resp.get("success"):

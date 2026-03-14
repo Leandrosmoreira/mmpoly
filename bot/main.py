@@ -39,6 +39,7 @@ from core.types import (
     MarketState, Side, SkewConfig, SkewResult, SkewTimeScaling, SkewWeights, SomaConfig,
 )
 from core.engine import Engine
+from core.quoter import MIN_ORDER_SIZE
 from core.skew import SkewEngine
 from data.book import BookCache
 from data.inventory import InventoryTracker
@@ -700,9 +701,13 @@ class GabaBot:
                 # BUG-021: Last-moment crossing guard.
                 # Re-read fresh book to catch TOCTOU race (book moved
                 # between quoter price calc and now).
+                # BUG-023: Skip guard for FOK sells (residual < 5 shares)
+                # — they SHOULD cross the book to fill immediately.
+                is_fok_sell = (intent.direction == Direction.SELL
+                               and 0 < intent.size < MIN_ORDER_SIZE)
                 book = (market.book_up if intent.side == Side.UP
                         else market.book_down)
-                if book.is_valid and intent.price is not None:
+                if book.is_valid and intent.price is not None and not is_fok_sell:
                     tick = 0.01
                     if intent.direction == Direction.BUY:
                         if intent.price >= book.best_ask:
