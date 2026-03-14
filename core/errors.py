@@ -64,6 +64,8 @@ class ErrorCode(str, Enum):
     SELL_ALLOWANCE_ERROR = "E4012" # BUG-017: SELL failed due to token approval, not phantom
     ZERO_SIDE_BLOCKED = "E4013"    # BUG-017: zero_side blocked (shares from live fills)
 
+    TOKEN_APPROVAL_FAILED = "E4014"   # BUG-020: token approval failed
+
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"
     SCANNER_ERROR = "E6002"

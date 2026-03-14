@@ -17,7 +17,9 @@ import structlog
 from typing import Optional
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import ApiCreds, OpenOrderParams, OrderArgs, OrderType
+from py_clob_client.clob_types import (
+    ApiCreds, AssetType, BalanceAllowanceParams, OpenOrderParams, OrderArgs, OrderType,
+)
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from core.types import BotConfig, Direction, Intent, LiveOrder, Side
@@ -45,6 +47,7 @@ class PolyClient:
         self._client: Optional[ClobClient] = None
         self._funder: str = ""
         self._last_place_error: str = ""  # "no_balance" when exchange rejects SELL
+        self._approved_tokens: set[str] = set()  # BUG-020: tokens already approved
 
     def connect(self):
         """Initialize CLOB client with credentials from env.
@@ -134,6 +137,43 @@ class PolyClient:
             logger.error("connection_check_failed", error=str(e),
                          error_code=ErrorCode.API_CONNECTION_FAILED)
 
+    async def approve_token(self, token_id: str) -> bool:
+        """Approve a conditional token for trading (allowance).
+
+        BUG-020: Polymarket requires token approval before SELL orders.
+        Without approval, SELL orders fail with "not enough balance / allowance".
+        This must be called once per token before any SELL order.
+
+        Returns True if approval succeeded or was already done.
+        """
+        if token_id in self._approved_tokens:
+            return True
+
+        if self.cfg.dry_run:
+            self._approved_tokens.add(token_id)
+            logger.info("dry_run_token_approved", token_id=token_id[:16] + "...")
+            return True
+
+        if self._client is None:
+            return False
+
+        try:
+            params = BalanceAllowanceParams(
+                asset_type=AssetType.CONDITIONAL,
+                token_id=token_id,
+            )
+            resp = await asyncio.to_thread(
+                self._client.update_balance_allowance, params
+            )
+            self._approved_tokens.add(token_id)
+            logger.info("token_approved", token_id=token_id[:16] + "...", resp=resp)
+            return True
+        except Exception as e:
+            logger.error("token_approval_failed",
+                        token_id=token_id[:16] + "...", error=str(e),
+                        error_code=ErrorCode.TOKEN_APPROVAL_FAILED)
+            return False
+
     async def place_order(self, intent: Intent, token_id: str) -> Optional[LiveOrder]:
         """Place a POST_ONLY limit order. Non-blocking.
 
@@ -211,6 +251,15 @@ class PolyClient:
             # "allowance" (token approval issue — shares ARE real).
             if "allowance" in err_str:
                 self._last_place_error = "allowance"
+                # BUG-020: Auto-approve and retry once on allowance error
+                if token_id not in self._approved_tokens:
+                    logger.warning("auto_approve_retry",
+                                  token_id=token_id[:16] + "...",
+                                  market=intent.market_name,
+                                  side=intent.side)
+                    approved = await self.approve_token(token_id)
+                    if approved:
+                        return await self.place_order(intent, token_id)
             elif "not enough balance" in err_str:
                 self._last_place_error = "no_balance"
             logger.error("place_order_error", error=str(e), market=intent.market_name,

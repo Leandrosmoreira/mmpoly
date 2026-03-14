@@ -327,6 +327,11 @@ class GabaBot:
         if not self.markets:
             logger.warning("no_markets_found", msg="Waiting for scanner...")
 
+        # BUG-020: Approve all initial market tokens for SELL orders
+        for m in self.markets.values():
+            await self.poly_client.approve_token(m.token_up)
+            await self.poly_client.approve_token(m.token_down)
+
         # Create WS feed
         all_tokens = []
         for m in self.markets.values():
@@ -396,6 +401,10 @@ class GabaBot:
                                         name=m.name,
                                         token_up=m.token_up[:16] + "..." if len(m.token_up) > 16 else m.token_up,
                                         token_down=m.token_down[:16] + "..." if len(m.token_down) > 16 else m.token_down)
+
+                        # BUG-020: Approve tokens for SELL orders
+                        await self.poly_client.approve_token(m.token_up)
+                        await self.poly_client.approve_token(m.token_down)
 
                         # Warmup book for new market
                         market_name = self._condition_to_name.get(m.condition_id)
