@@ -226,10 +226,18 @@ class Inventory:
                     self.realized_pnl += (px - self.avg_cost_down) * sz
                 self.shares_down = max(0, self.shares_down - sz)
 
-    @property
-    def unrealized_pnl_at(self) -> float:
-        """Needs mid prices to compute — done externally."""
-        return 0.0
+    def unrealized_pnl(self, mid_up: float, mid_down: float) -> float:
+        """Compute unrealized PnL at current mid prices.
+
+        BUG-016: Used by engine to detect adverse moves and trigger
+        emergency sells before loss grows too large.
+        """
+        pnl = 0.0
+        if self.shares_up > 0 and mid_up > 0:
+            pnl += (mid_up - self.avg_cost_up) * self.shares_up
+        if self.shares_down > 0 and mid_down > 0:
+            pnl += (mid_down - self.avg_cost_down) * self.shares_down
+        return pnl
 
 
 @dataclass
@@ -369,6 +377,10 @@ class BotConfig:
     max_rejects: int = 10
     max_consecutive_losses: int = 5
     cooldown_s: float = 1800.0
+
+    # BUG-016: Adverse movement — emergency sell when losing too much
+    adverse_loss_threshold: float = -0.50   # USDC unrealized loss to trigger emergency sell
+    adverse_sell_at_bid: bool = True         # sell at bid (fast fill) vs ask-tick (slower)
 
     # Logging
     log_dir: str = "logs"

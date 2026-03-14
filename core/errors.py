@@ -53,6 +53,14 @@ class ErrorCode(str, Enum):
     SCANNER_LOOP_ERROR = "E5004"
     INVALID_MARKET_TOKENS = "E5005"
 
+    # --- Reconciliation (5xxx) ---
+    ORPHAN_ORDER_DETECTED = "E5010"
+    RECONCILE_ERROR = "E5011"
+    RECONCILE_CANCEL_ALL_SAFETY = "E5012"
+
+    # --- Adverse movement (4xxx cont.) ---
+    ADVERSE_MOVEMENT = "E4010"
+
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"
     SCANNER_ERROR = "E6002"

@@ -136,6 +136,27 @@ class Engine:
                 logger.info("state_change", market=self.market.name,
                            to_state="QUOTING", net=inv.net)
 
+        # === BUG-016: Adverse movement — emergency sell when losing too much ===
+        has_inventory = inv.shares_up > 0 or inv.shares_down > 0
+        if has_inventory and self.cfg.adverse_loss_threshold < 0:
+            mid_up = book_up.mid if book_up.is_valid else book_up.best_bid
+            mid_down = book_down.mid if book_down.is_valid else book_down.best_bid
+            unrealized = inv.unrealized_pnl(mid_up, mid_down)
+            if unrealized < self.cfg.adverse_loss_threshold:
+                logger.warning("adverse_movement_detected",
+                               market=self.market.name,
+                               unrealized=round(unrealized, 4),
+                               threshold=self.cfg.adverse_loss_threshold,
+                               shares_up=inv.shares_up,
+                               shares_down=inv.shares_down,
+                               mid_up=mid_up, mid_down=mid_down,
+                               avg_cost_up=inv.avg_cost_up,
+                               avg_cost_down=inv.avg_cost_down)
+                # Cancel all existing orders and sell at bid for fast fill
+                intents.extend(self._cancel_all_intents(live_order_ids, "adverse_movement"))
+                intents.extend(self._emergency_sell_intents(live_order_ids, order_mgr))
+                return intents
+
         # === Par/arb ===
         pair_signal = check_pair(book_up, book_down, self.cfg)
         if pair_signal:
@@ -400,6 +421,60 @@ class Engine:
                 size=min(inv.shares_down, self.cfg.grid.level_size),
                 reason="stale_book_reduce_down",
             ))
+
+        return intents
+
+    def _emergency_sell_intents(
+        self, live_order_ids: list[str], order_mgr: "OrderManager",
+    ) -> list[Intent]:
+        """BUG-016: Sell at bid price for fast fill when losing.
+
+        Unlike _exit_intents (which uses best_bid = taker price),
+        this uses best_bid + tick for POST_ONLY when possible,
+        or best_bid as aggressive maker if cfg.adverse_sell_at_bid.
+        """
+        intents = []
+        inv = self.market.inventory
+        sell_up, sell_down = self._has_pending_sells(live_order_ids, order_mgr)
+
+        if inv.shares_up > 0 and self.market.book_up.has_bid and not sell_up:
+            # Sell at bid (will fill immediately against resting bid)
+            px = self.market.book_up.best_bid
+            if not self.cfg.adverse_sell_at_bid:
+                px = self.market.book_up.best_bid + self.cfg.tick
+            intents.append(Intent(
+                type=IntentType.PLACE_ORDER,
+                market_name=self.market.name,
+                side=Side.UP,
+                direction=Direction.SELL,
+                price=px,
+                size=inv.shares_up,
+                reason="adverse_sell_up",
+            ))
+            logger.warning("adverse_emergency_sell",
+                           market=self.market.name, side="UP",
+                           px=px, sz=inv.shares_up,
+                           avg_cost=inv.avg_cost_up,
+                           loss=round((px - inv.avg_cost_up) * inv.shares_up, 4))
+
+        if inv.shares_down > 0 and self.market.book_down.has_bid and not sell_down:
+            px = self.market.book_down.best_bid
+            if not self.cfg.adverse_sell_at_bid:
+                px = self.market.book_down.best_bid + self.cfg.tick
+            intents.append(Intent(
+                type=IntentType.PLACE_ORDER,
+                market_name=self.market.name,
+                side=Side.DOWN,
+                direction=Direction.SELL,
+                price=px,
+                size=inv.shares_down,
+                reason="adverse_sell_down",
+            ))
+            logger.warning("adverse_emergency_sell",
+                           market=self.market.name, side="DOWN",
+                           px=px, sz=inv.shares_down,
+                           avg_cost=inv.avg_cost_down,
+                           loss=round((px - inv.avg_cost_down) * inv.shares_down, 4))
 
         return intents
 

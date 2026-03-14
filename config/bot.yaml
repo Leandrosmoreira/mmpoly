@@ -65,7 +65,7 @@ soma:
 tick: 0.01
 order_size: 5                  # compatibilidade (grid usa grid.level_size)
 min_spread: 0.01               # spread minimo (BTC 15m tipicamente tem 1 tick; skew protege)
-quote_ttl_ms: 8000             # TTL das ordens: 8s (grid e menos agressivo em cancel)
+quote_ttl_ms: 12000            # TTL: 12s (mais tempo para preencher, era 8s)
 
 # === Inventory ===
 net_soft_limit: 5              # inicia skew com 5 shares liquidos (match grid_levels=1)
@@ -92,8 +92,12 @@ min_pair_size: 2
 max_daily_loss: -3.0           # USDC, aciona kill switch (preserva capital durante ajuste)
 stale_book_ms: 60000           # idade maxima do book (60s — mercados BTC 15m tem atividade intermitente)
 max_rejects: 10
-max_consecutive_losses: 3
+max_consecutive_losses: 5      # 5 perdas seguidas = kill (era 3, muito sensivel para scalping)
 cooldown_s: 1800               # 30min de cooldown apos kill
+
+# === BUG-016: Adverse Movement (loss-cutting) ===
+adverse_loss_threshold: -0.50  # USDC: vende tudo se unrealized loss > $0.50
+adverse_sell_at_bid: true      # vende no bid para preencher rapido
 
 # === Logging ===
 log_dir: "logs"
