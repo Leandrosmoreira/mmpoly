@@ -697,6 +697,56 @@ class GabaBot:
                 token_id = (market.token_up if intent.side == Side.UP
                            else market.token_down)
 
+                # BUG-021: Last-moment crossing guard.
+                # Re-read fresh book to catch TOCTOU race (book moved
+                # between quoter price calc and now).
+                book = (market.book_up if intent.side == Side.UP
+                        else market.book_down)
+                if book.is_valid and intent.price is not None:
+                    tick = 0.01
+                    if intent.direction == Direction.BUY:
+                        if intent.price >= book.best_ask:
+                            clamped = round(book.best_ask - tick, 2)
+                            if clamped <= 0:
+                                logger.warning("crosses_book_skipped",
+                                               market=intent.market_name,
+                                               side=intent.side.value,
+                                               direction="BUY",
+                                               price=intent.price,
+                                               best_ask=book.best_ask,
+                                               error_code=ErrorCode.CROSSES_BOOK_SKIPPED)
+                                continue
+                            logger.info("crosses_book_clamped",
+                                        market=intent.market_name,
+                                        side=intent.side.value,
+                                        direction="BUY",
+                                        original_price=intent.price,
+                                        clamped_price=clamped,
+                                        best_ask=book.best_ask,
+                                        error_code=ErrorCode.CROSSES_BOOK_CLAMPED)
+                            intent.price = clamped
+                    elif intent.direction == Direction.SELL:
+                        if intent.price <= book.best_bid:
+                            clamped = round(book.best_bid + tick, 2)
+                            if clamped > 0.99:
+                                logger.warning("crosses_book_skipped",
+                                               market=intent.market_name,
+                                               side=intent.side.value,
+                                               direction="SELL",
+                                               price=intent.price,
+                                               best_bid=book.best_bid,
+                                               error_code=ErrorCode.CROSSES_BOOK_SKIPPED)
+                                continue
+                            logger.info("crosses_book_clamped",
+                                        market=intent.market_name,
+                                        side=intent.side.value,
+                                        direction="SELL",
+                                        original_price=intent.price,
+                                        clamped_price=clamped,
+                                        best_bid=book.best_bid,
+                                        error_code=ErrorCode.CROSSES_BOOK_CLAMPED)
+                            intent.price = clamped
+
                 live_order = await self.poly_client.place_order(intent, token_id)
                 if live_order:
                     live_order.level = intent.level  # propaga nivel do grid

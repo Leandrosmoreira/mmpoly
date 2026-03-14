@@ -65,6 +65,8 @@ class ErrorCode(str, Enum):
     ZERO_SIDE_BLOCKED = "E4013"    # BUG-017: zero_side blocked (shares from live fills)
 
     TOKEN_APPROVAL_FAILED = "E4014"   # BUG-020: token approval failed
+    CROSSES_BOOK_CLAMPED = "E2010"   # BUG-021: order price clamped to avoid crossing book
+    CROSSES_BOOK_SKIPPED = "E2011"   # BUG-021: order skipped — no valid price after clamp
 
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"
