@@ -107,10 +107,11 @@ class TestBuyVsSellErrorHandling:
         _run(client.place_order(intent, "token_up_123"))
         client.approve_token.assert_called_once_with("token_up_123")
 
-    def test_sell_error_skips_approve_if_already_approved(self):
-        """SELL failure with token already approved → no retry."""
+    def test_sell_error_retries_approve_even_if_cached(self):
+        """BUG-024: SELL failure with token already approved → invalidate
+        cache and retry (on-chain approval may not have propagated)."""
         client = self._make_client()
-        client._approved_tokens.add("token_up_123")  # already approved
+        client._approved_tokens.add("token_up_123")  # cached but may be stale
         intent = Intent(
             type=IntentType.PLACE_ORDER,
             market_name="btc-15m-test",
@@ -121,7 +122,8 @@ class TestBuyVsSellErrorHandling:
         )
 
         _run(client.place_order(intent, "token_up_123"))
-        client.approve_token.assert_not_called()
+        # BUG-024: Should have retried approval (cache invalidated)
+        client.approve_token.assert_called_once_with("token_up_123")
 
     def test_buy_repeated_errors_no_approve_spam(self):
         """Multiple BUY failures should never call approve_token."""

@@ -175,11 +175,14 @@ class PolyClient:
                         error_code=ErrorCode.TOKEN_APPROVAL_FAILED)
             return False
 
-    async def place_order(self, intent: Intent, token_id: str) -> Optional[LiveOrder]:
+    async def place_order(self, intent: Intent, token_id: str, _retry: bool = False) -> Optional[LiveOrder]:
         """Place a POST_ONLY limit order. Non-blocking.
 
         Sets self._last_place_error to "no_balance" if the exchange rejects
         with "not enough balance" — used by caller to detect phantom inventory.
+
+        Args:
+            _retry: internal flag to prevent infinite recursion on approval retry.
         """
         self._last_place_error = ""
         now = time.time()
@@ -223,6 +226,13 @@ class PolyClient:
                         market=intent.market_name, side=intent.side,
                         px=intent.price, sz=intent.size,
                         error_code=ErrorCode.RESIDUAL_SELL_FOK)
+
+        # BUG-028: Exit dump — use FOK for all exit sells to guarantee fill
+        if intent.reason.startswith("exit_dump") and intent.direction == Direction.SELL:
+            order_type = OrderType.FOK
+            logger.info("exit_dump_fok",
+                        market=intent.market_name, side=intent.side,
+                        px=intent.price, sz=intent.size)
 
         try:
             poly_side = BUY if intent.direction == Direction.BUY else SELL
@@ -276,14 +286,23 @@ class PolyClient:
                     # The Polymarket error "not enough balance / allowance"
                     # is ambiguous — for SELL it means token not approved.
                     self._last_place_error = "allowance"
-                    if token_id not in self._approved_tokens:
+                    # BUG-024: Always retry approval on SELL failure (once).
+                    # The cache may be stale (approval added at registration
+                    # but on-chain tx not yet propagated). Invalidate and retry.
+                    if not _retry:
+                        if token_id in self._approved_tokens:
+                            self._approved_tokens.discard(token_id)
+                            logger.warning("approval_cache_invalidated",
+                                          token_id=token_id[:16] + "...",
+                                          market=intent.market_name,
+                                          reason="sell_failed_despite_cached_approval")
                         logger.warning("auto_approve_retry",
                                       token_id=token_id[:16] + "...",
                                       market=intent.market_name,
                                       side=intent.side)
                         approved = await self.approve_token(token_id)
                         if approved:
-                            return await self.place_order(intent, token_id)
+                            return await self.place_order(intent, token_id, _retry=True)
                 else:
                     # BUG-022: BUY failing = insufficient USDC collateral.
                     # Don't try token approval — the wallet just doesn't

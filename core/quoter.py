@@ -201,6 +201,25 @@ def compute_grid_quotes(
                      pos=current_pos, max_position=cfg.max_position)
         buy_levels = 0
 
+    # BUG-025: Don't buy tokens below min_buy_price — market has resolved.
+    # When DOWN drops to 0.10, UP is at 0.90 — no edge buying DOWN.
+    if buy_levels > 0 and book.best_bid < cfg.min_buy_price:
+        log.info("buys_suppressed_price_floor", side=side.value,
+                 best_bid=book.best_bid, min_buy_price=cfg.min_buy_price)
+        buy_levels = 0
+
+    # BUG-026: Don't re-buy a side that already realized losses.
+    # Prevents death spiral: buy → sell at loss → buy again → sell at loss.
+    buy_blocked = (
+        (side == Side.UP and inv.buy_blocked_up)
+        or (side == Side.DOWN and inv.buy_blocked_down)
+    )
+    if buy_levels > 0 and buy_blocked:
+        log.info("buys_blocked_side_loss", side=side.value,
+                 realized_up=round(inv.side_realized_up, 4),
+                 realized_down=round(inv.side_realized_down, 4))
+        buy_levels = 0
+
     # Combined ask filter: no edge when UP_ask + DOWN_ask >= 1.0
     if suppress_buys:
         buy_levels = 0

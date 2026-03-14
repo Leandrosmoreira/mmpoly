@@ -99,6 +99,9 @@ cooldown_s: 1800               # 30min de cooldown apos kill
 adverse_loss_threshold: -0.50  # USDC: vende tudo se unrealized loss > $0.50
 adverse_sell_at_bid: true      # vende no bid para preencher rapido
 
+# === BUG-025: Price floor — para de comprar tokens resolvidos ===
+min_buy_price: 0.15            # nao compra token com bid < 0.15 (mercado ja resolveu)
+
 # === Logging ===
 log_dir: "logs"
 snapshot_interval_s: 30

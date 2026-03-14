@@ -69,6 +69,10 @@ class ErrorCode(str, Enum):
     CROSSES_BOOK_SKIPPED = "E2011"   # BUG-021: order skipped — no valid price after clamp
     RESIDUAL_SELL_FOK = "E2012"      # BUG-023: residual shares < min sold via FOK
     ORDER_SIZE_TOO_SMALL = "E2013"   # BUG-023: BUY size < min, skipped
+    EXIT_DUMP_FOK = "E2014"          # BUG-028: exit dump — FOK sell at expiry
+    APPROVAL_CACHE_STALE = "E2015"   # BUG-024: approval cache invalidated on SELL failure
+    BUYS_BLOCKED_SIDE_LOSS = "E2016" # BUG-026: buys blocked — side already lost money
+    BUYS_BLOCKED_PRICE_FLOOR = "E2017"  # BUG-025: buys blocked — token price below floor
 
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"

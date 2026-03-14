@@ -127,25 +127,27 @@ class TestPlaceOrderAutoApprove:
         assert result.order_id == "order_123"
         assert "token_up_abc" in client._approved_tokens
 
-    def test_no_retry_if_already_approved(self):
-        """If token is already approved, don't retry on allowance error."""
+    def test_retry_even_if_already_approved(self):
+        """BUG-024: If token was cached as approved but SELL fails,
+        invalidate cache and retry approval (on-chain tx may be stale)."""
         cfg = BotConfig(dry_run=False)
         client = PolyClient(cfg)
-        client._approved_tokens.add("token_up_abc")  # already approved
+        client._approved_tokens.add("token_up_abc")  # cached but stale
         mock_clob = MagicMock()
 
         mock_clob.create_order.return_value = {"signed": True}
         mock_clob.post_order.side_effect = Exception(
             "not enough balance / allowance"
         )
+        mock_clob.update_balance_allowance.return_value = {"success": True}
         client._client = mock_clob
 
         intent = self._make_sell_intent()
         result = run(client.place_order(intent, "token_up_abc"))
 
-        assert result is None
-        # Should NOT have tried to approve again
-        mock_clob.update_balance_allowance.assert_not_called()
+        # Should have invalidated cache and retried approval
+        assert result is None  # retry also fails (post_order still raises)
+        mock_clob.update_balance_allowance.assert_called()
 
     def test_balance_error_buy_no_retry(self):
         """BUY 'not enough balance' → no auto-approve (USDC issue, not token).
@@ -175,6 +177,7 @@ class TestPlaceOrderAutoApprove:
         """SELL 'not enough balance' → auto-approve + retry.
 
         BUG-022: For SELL orders, balance errors = token approval needed.
+        BUG-024: Always retries, even if token was already in cache.
         """
         cfg = BotConfig(dry_run=False)
         client = PolyClient(cfg)
@@ -184,6 +187,7 @@ class TestPlaceOrderAutoApprove:
         mock_clob.post_order.side_effect = Exception(
             "not enough balance"
         )
+        mock_clob.update_balance_allowance.return_value = {"success": True}
         client._client = mock_clob
 
         intent = self._make_sell_intent()
@@ -191,8 +195,8 @@ class TestPlaceOrderAutoApprove:
 
         assert result is None
         assert client._last_place_error == "allowance"
-        # Should have tried approve (but retry will also fail)
-        mock_clob.update_balance_allowance.assert_called_once()
+        # Should have tried approve (but retry will also fail because post_order keeps raising)
+        mock_clob.update_balance_allowance.assert_called()
 
     def test_dry_run_sell_works(self):
         """Dry run mode should work for SELL orders."""

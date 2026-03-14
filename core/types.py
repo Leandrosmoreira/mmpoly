@@ -200,6 +200,12 @@ class Inventory:
     avg_cost_down: float = 0.0
     realized_pnl: float = 0.0
 
+    # BUG-026: Per-side loss tracking — block re-buy after selling at loss
+    side_realized_up: float = 0.0    # cumulative realized PnL on UP side
+    side_realized_down: float = 0.0  # cumulative realized PnL on DOWN side
+    buy_blocked_up: bool = False     # True = stop buying UP (sold at loss)
+    buy_blocked_down: bool = False   # True = stop buying DOWN (sold at loss)
+
     @property
     def net(self) -> float:
         """Positive = heavy UP, negative = heavy DOWN."""
@@ -214,7 +220,12 @@ class Inventory:
                 self.avg_cost_up = total_cost / self.shares_up if self.shares_up > 0 else 0
             else:  # SELL
                 if self.shares_up > 0:
-                    self.realized_pnl += (px - self.avg_cost_up) * sz
+                    delta = (px - self.avg_cost_up) * sz
+                    self.realized_pnl += delta
+                    self.side_realized_up += delta
+                    # BUG-026: Block re-buy if this side is losing
+                    if self.side_realized_up < -0.10:
+                        self.buy_blocked_up = True
                 self.shares_up = max(0, self.shares_up - sz)
         else:  # DOWN
             if direction == Direction.BUY:
@@ -223,7 +234,12 @@ class Inventory:
                 self.avg_cost_down = total_cost / self.shares_down if self.shares_down > 0 else 0
             else:  # SELL
                 if self.shares_down > 0:
-                    self.realized_pnl += (px - self.avg_cost_down) * sz
+                    delta = (px - self.avg_cost_down) * sz
+                    self.realized_pnl += delta
+                    self.side_realized_down += delta
+                    # BUG-026: Block re-buy if this side is losing
+                    if self.side_realized_down < -0.10:
+                        self.buy_blocked_down = True
                 self.shares_down = max(0, self.shares_down - sz)
 
     def unrealized_pnl(self, mid_up: float, mid_down: float) -> float:
@@ -381,6 +397,9 @@ class BotConfig:
     # BUG-016: Adverse movement — emergency sell when losing too much
     adverse_loss_threshold: float = -0.50   # USDC unrealized loss to trigger emergency sell
     adverse_sell_at_bid: bool = True         # sell at bid (fast fill) vs ask-tick (slower)
+
+    # BUG-025: Minimum price to buy a token — stop buying resolved markets
+    min_buy_price: float = 0.15             # don't buy tokens below this price (market resolved)
 
     # Logging
     log_dir: str = "logs"

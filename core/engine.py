@@ -355,10 +355,10 @@ class Engine:
     def _exit_intents(
         self, live_order_ids: list[str], order_mgr: "OrderManager",
     ) -> list[Intent]:
-        """Gera intents de saida: vende TODA posicao a mercado (taker).
+        """Gera intents de saida: vende TODA posicao a mercado.
 
-        No EXIT, vende ambos os lados se tiver shares.
-        Nao coloca sell duplicado se ja tem um pendente.
+        BUG-028: Sell ALL remaining shares at expiry, not just level_size.
+        Uses reason="exit_dump_*" to signal poly_client to use FOK order type.
         """
         intents = []
         inv = self.market.inventory
@@ -371,8 +371,8 @@ class Engine:
                 side=Side.UP,
                 direction=Direction.SELL,
                 price=self.market.book_up.best_bid,
-                size=min(inv.shares_up, self.cfg.grid.level_size),
-                reason="exit_reduce_up",
+                size=inv.shares_up,
+                reason="exit_dump_up",
             ))
 
         if inv.shares_down > 0 and self.market.book_down.has_bid and not sell_down:
@@ -382,8 +382,8 @@ class Engine:
                 side=Side.DOWN,
                 direction=Direction.SELL,
                 price=self.market.book_down.best_bid,
-                size=min(inv.shares_down, self.cfg.grid.level_size),
-                reason="exit_reduce_down",
+                size=inv.shares_down,
+                reason="exit_dump_down",
             ))
 
         return intents

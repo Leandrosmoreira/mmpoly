@@ -285,9 +285,13 @@ class SkewEngine:
     def _side_adjustments(self, scaled: float, inv_component: float) -> tuple[float, float]:
         """Compute asymmetric bid/ask adjustments.
 
-        Combines directional signal with inventory correction:
-        - Directional: both sides follow the signal
-        - Inventory: pushes bid away from heavy side, pulls ask closer
+        BUG-027: Inventory correction only affects the ASK side (sell faster),
+        NOT the bid side. Previously, inventory correction made buys MORE
+        aggressive when heavy on one side — exactly wrong during a crash.
+
+        Now:
+        - Directional: both sides follow the signal (50%)
+        - Inventory: only pushes ask closer (sell faster), bid uses direction only
 
         Returns: (bid_adj, ask_adj)
         """
@@ -296,11 +300,13 @@ class SkewEngine:
         # Directional: 50% of signal
         dir_adj = 0.5 * scaled * max_adj
 
-        # Inventory corrective: 50% of signal
-        # inv_component < 0 (heavy UP) → bid_adj more negative, ask_adj less negative
+        # Inventory corrective: ONLY on ask side
+        # inv_component < 0 (heavy UP) → ask_adj less negative (sell UP cheaper)
         inv_adj = 0.5 * inv_component * max_adj
 
-        bid_adj = _clamp(dir_adj + inv_adj, -max_adj, max_adj)
+        # BUG-027: bid uses direction only, no inventory correction
+        bid_adj = _clamp(dir_adj, -max_adj, max_adj)
+        # ask gets full inventory correction for faster dumping
         ask_adj = _clamp(dir_adj - inv_adj, -max_adj, max_adj)
 
         return round(bid_adj, 6), round(ask_adj, 6)
