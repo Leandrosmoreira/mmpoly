@@ -76,6 +76,18 @@ class BookCache:
         elif asks:
             pass
 
+        # BUG-030: Sanity check — reject inverted books (ask < bid).
+        # WS partial updates can leave stale ask/bid that crosses.
+        # If crossed, invalidate the stale side so engine won't use bad prices.
+        if book.best_bid > 0 and book.best_ask > 0 and book.best_ask <= book.best_bid:
+            log.warning("book_inverted",
+                        token_id=token_id[:16] + "...",
+                        bid=book.best_bid, ask=book.best_ask,
+                        msg="Rejecting inverted book — clearing stale side")
+            # Clear both sizes to mark book as invalid (is_valid requires both > 0)
+            book.best_bid_sz = 0.0
+            book.best_ask_sz = 0.0
+
         book.ts = time.time()
 
     def update_from_snapshot(self, token_id: str, data):
@@ -114,6 +126,14 @@ class BookCache:
             sorted_asks = sorted(valid_asks, key=lambda x: float(x["price"]))
             book.best_ask = float(sorted_asks[0]["price"])
             book.best_ask_sz = float(sorted_asks[0]["size"])
+
+        # BUG-030: Sanity check — reject inverted books
+        if book.best_bid > 0 and book.best_ask > 0 and book.best_ask <= book.best_bid:
+            log.warning("book_inverted_snapshot",
+                        token_id=token_id[:16] + "...",
+                        bid=book.best_bid, ask=book.best_ask)
+            book.best_bid_sz = 0.0
+            book.best_ask_sz = 0.0
 
         book.ts = time.time()
         self._books[token_id] = book

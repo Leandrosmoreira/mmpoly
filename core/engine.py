@@ -190,10 +190,25 @@ class Engine:
                              error_code=ErrorCode.BOOK_STALE)
             return intents
 
+        # === BUG-031: Compute pending BUY sizes from live orders ===
+        # Include size of live BUY orders as virtual position to prevent
+        # placing new BUYs that breach max_position if existing ones fill.
+        pending_buy_up = 0.0
+        pending_buy_down = 0.0
+        for oid in live_order_ids:
+            order = order_mgr.get(oid)
+            if order and order.direction == Direction.BUY:
+                if order.side == Side.UP:
+                    pending_buy_up += order.remaining
+                elif order.side == Side.DOWN:
+                    pending_buy_down += order.remaining
+
         # === Grid: calcula quotes desejadas ===
         new_quotes = compute_all_quotes(
             book_up, book_down, inv, regime, self.cfg,
             skew_up=self.skew_up, skew_down=self.skew_down,
+            pending_buy_up=pending_buy_up,
+            pending_buy_down=pending_buy_down,
         )
 
         # === Cancel seletivo: so cancela niveis que mudaram de preco ===

@@ -144,6 +144,7 @@ def compute_grid_quotes(
     skew_bid_adj: float = 0.0,
     skew_ask_adj: float = 0.0,
     suppress_buys: bool = False,
+    pending_buy_size: float = 0.0,
 ) -> list[Quote]:
     """Computa quotes do grid para um token (UP ou DOWN).
 
@@ -162,6 +163,11 @@ def compute_grid_quotes(
         return []
 
     current_pos = inv.shares_up if side == Side.UP else inv.shares_down
+
+    # BUG-031: Include pending BUY order size as virtual position.
+    # Prevents placing a new BUY while an existing BUY is live on exchange
+    # that could fill any moment and breach max_position.
+    effective_pos = current_pos + pending_buy_size
 
     if not book.is_valid:
         # Can't compute full grid, but if we HAVE inventory and a bid price,
@@ -195,10 +201,11 @@ def compute_grid_quotes(
     # Old logic: current_pos >= level_size (5) killed ALL buys after first fill.
     # This made the bot one-shot: buy once → never buy again on that side.
     # New logic: use max_position from config (respects grid_levels setting).
-    if current_pos >= cfg.max_position:
+    if effective_pos >= cfg.max_position:
         if buy_levels > 0:
             log.info("buys_suppressed_max_pos", side=side.value,
-                     pos=current_pos, max_position=cfg.max_position)
+                     pos=current_pos, pending=pending_buy_size,
+                     effective=effective_pos, max_position=cfg.max_position)
         buy_levels = 0
 
     # BUG-025: Don't buy tokens below min_buy_price — market has resolved.
@@ -246,8 +253,8 @@ def compute_grid_quotes(
         if px <= 0 or px >= book.best_ask:
             continue  # nivel invalido, pula
 
-        # Limite de posicao: nao compra alem do max
-        if current_pos + (lvl + 1) * g.level_size > cfg.max_position:
+        # Limite de posicao: nao compra alem do max (includes pending buys)
+        if effective_pos + (lvl + 1) * g.level_size > cfg.max_position:
             break  # niveis mais distantes tambem estouram, pode parar
 
         quotes.append(Quote(
@@ -309,6 +316,8 @@ def compute_all_quotes(
     cfg: BotConfig,
     skew_up: SkewResult | None = None,
     skew_down: SkewResult | None = None,
+    pending_buy_up: float = 0.0,
+    pending_buy_down: float = 0.0,
 ) -> list[Quote]:
     """Computa quotes do grid para UP e DOWN com soma check + skew.
 
@@ -348,6 +357,7 @@ def compute_all_quotes(
         skew_bid_adj=s_up.bid_adj,
         skew_ask_adj=s_up.ask_adj,
         suppress_buys=suppress_buys,
+        pending_buy_size=pending_buy_up,
     ))
     quotes.extend(compute_grid_quotes(
         book_down, Side.DOWN, inv, regime, cfg,
@@ -356,5 +366,6 @@ def compute_all_quotes(
         skew_bid_adj=s_dn.bid_adj,
         skew_ask_adj=s_dn.ask_adj,
         suppress_buys=suppress_buys,
+        pending_buy_size=pending_buy_down,
     ))
     return quotes

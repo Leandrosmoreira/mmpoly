@@ -145,6 +145,10 @@ class PolyClient:
         Without approval, SELL orders fail with "not enough balance / allowance".
         This must be called once per token before any SELL order.
 
+        BUG-029: Added 10s timeout and explicit logging at every step.
+        Production showed 0 token_approved and 0 token_approval_failed events,
+        indicating the SDK call was hanging indefinitely.
+
         Returns True if approval succeeded or was already done.
         """
         if token_id in self._approved_tokens:
@@ -158,17 +162,27 @@ class PolyClient:
         if self._client is None:
             return False
 
+        logger.info("token_approval_starting", token_id=token_id[:16] + "...")
         try:
             params = BalanceAllowanceParams(
                 asset_type=AssetType.CONDITIONAL,
                 token_id=token_id,
             )
-            resp = await asyncio.to_thread(
-                self._client.update_balance_allowance, params
+            resp = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._client.update_balance_allowance, params
+                ),
+                timeout=10.0,
             )
             self._approved_tokens.add(token_id)
             logger.info("token_approved", token_id=token_id[:16] + "...", resp=resp)
             return True
+        except asyncio.TimeoutError:
+            logger.error("token_approval_timeout",
+                        token_id=token_id[:16] + "...",
+                        error_code=ErrorCode.TOKEN_APPROVAL_FAILED,
+                        msg="update_balance_allowance hung for 10s")
+            return False
         except Exception as e:
             logger.error("token_approval_failed",
                         token_id=token_id[:16] + "...", error=str(e),
