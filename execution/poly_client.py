@@ -248,12 +248,25 @@ class PolyClient:
                         error_code=ErrorCode.RESIDUAL_SELL_FOK)
 
         # BUG-028: Exit dump — use FOK for all exit sells to guarantee fill
-        # BUG-033: Adverse emergency sells — also FOK for fast fill
-        if (intent.reason.startswith("exit_dump") or intent.reason.startswith("adverse_sell")) and intent.direction == Direction.SELL:
-            order_type = OrderType.FOK
-            logger.info("urgent_sell_fok",
-                        market=intent.market_name, side=intent.side,
-                        px=intent.price, sz=intent.size, reason=intent.reason)
+        # BUG-033: Adverse emergency sells — FOK for fast fill, but POST_ONLY
+        #          fallback after max FOK attempts (reason=adverse_sell_postonly_*)
+        if intent.direction == Direction.SELL:
+            if intent.reason.startswith("exit_dump"):
+                order_type = OrderType.FOK
+                logger.info("urgent_sell_fok",
+                            market=intent.market_name, side=intent.side,
+                            px=intent.price, sz=intent.size, reason=intent.reason)
+            elif intent.reason.startswith("adverse_sell_postonly"):
+                # BUG-033: POST_ONLY fallback — rest the order instead of spamming FOK
+                order_type = OrderType.GTC
+                logger.info("adverse_sell_postonly",
+                            market=intent.market_name, side=intent.side,
+                            px=intent.price, sz=intent.size, reason=intent.reason)
+            elif intent.reason.startswith("adverse_sell"):
+                order_type = OrderType.FOK
+                logger.info("urgent_sell_fok",
+                            market=intent.market_name, side=intent.side,
+                            px=intent.price, sz=intent.size, reason=intent.reason)
 
         try:
             poly_side = BUY if intent.direction == Direction.BUY else SELL

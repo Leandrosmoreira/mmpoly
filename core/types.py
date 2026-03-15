@@ -398,6 +398,11 @@ class BotConfig:
     adverse_loss_threshold: float = -0.50   # USDC unrealized loss to trigger emergency sell
     adverse_sell_at_bid: bool = True         # sell at bid (fast fill) vs ask-tick (slower)
 
+    # BUG-033/034/035: Adverse sell improvements
+    adverse_max_fok_attempts: int = 3       # max FOK attempts before switching to POST_ONLY
+    adverse_cooldown_s: float = 60.0        # cooldown after adverse sell (prevents re-entry)
+    adverse_max_loss_per_share: float = 0.12  # max loss per share on emergency sell
+
     # BUG-025: Minimum price to buy a token — stop buying resolved markets
     min_buy_price: float = 0.15             # don't buy tokens below this price (market resolved)
 

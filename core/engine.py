@@ -49,6 +49,9 @@ class Engine:
         # Skew: set by main.py before each tick (None = no skew applied)
         self.skew_up: SkewResult | None = None
         self.skew_down: SkewResult | None = None
+        # BUG-033: Track adverse FOK attempts to avoid infinite spam loop
+        self._adverse_fok_attempts: int = 0
+        self._adverse_cooldown_until: float = 0.0
 
     def update_regime(self):
         """Update time regime based on remaining time."""
@@ -137,12 +140,22 @@ class Engine:
                            to_state="QUOTING", net=inv.net)
 
         # === BUG-016: Adverse movement — emergency sell when losing too much ===
+        # BUG-033: Cooldown after adverse sell to prevent FOK spam loop
         has_inventory = inv.shares_up > 0 or inv.shares_down > 0
         if has_inventory and self.cfg.adverse_loss_threshold < 0:
+            # Check adverse-specific cooldown (separate from market cooldown)
+            if now < self._adverse_cooldown_until:
+                logger.debug("adverse_cooldown_active",
+                             market=self.market.name,
+                             remaining=f"{self._adverse_cooldown_until - now:.1f}s",
+                             attempts=self._adverse_fok_attempts)
+                return intents
+
             mid_up = book_up.mid if book_up.is_valid else book_up.best_bid
             mid_down = book_down.mid if book_down.is_valid else book_down.best_bid
             unrealized = inv.unrealized_pnl(mid_up, mid_down)
             if unrealized < self.cfg.adverse_loss_threshold:
+                self._adverse_fok_attempts += 1
                 logger.warning("adverse_movement_detected",
                                market=self.market.name,
                                unrealized=round(unrealized, 4),
@@ -151,10 +164,24 @@ class Engine:
                                shares_down=inv.shares_down,
                                mid_up=mid_up, mid_down=mid_down,
                                avg_cost_up=inv.avg_cost_up,
-                               avg_cost_down=inv.avg_cost_down)
-                # Cancel all existing orders and sell at bid for fast fill
+                               avg_cost_down=inv.avg_cost_down,
+                               fok_attempt=self._adverse_fok_attempts)
+
+                # BUG-033: After max FOK attempts, set cooldown + switch to POST_ONLY
+                if self._adverse_fok_attempts > self.cfg.adverse_max_fok_attempts:
+                    self._adverse_cooldown_until = now + self.cfg.adverse_cooldown_s
+                    logger.warning("adverse_fok_exhausted",
+                                   market=self.market.name,
+                                   attempts=self._adverse_fok_attempts,
+                                   cooldown_s=self.cfg.adverse_cooldown_s,
+                                   msg="Switching to POST_ONLY after FOK failures")
+
+                # Cancel all existing orders and sell
                 intents.extend(self._cancel_all_intents(live_order_ids, "adverse_movement"))
                 intents.extend(self._emergency_sell_intents(live_order_ids, order_mgr))
+
+                # BUG-035: Set market cooldown to prevent immediate re-buy
+                self.market.cooldown_until = now + self.cfg.adverse_cooldown_s
                 return intents
 
         # === Par/arb ===
@@ -444,19 +471,30 @@ class Engine:
     ) -> list[Intent]:
         """BUG-016: Sell at bid price for fast fill when losing.
 
-        Unlike _exit_intents (which uses best_bid = taker price),
-        this uses best_bid + tick for POST_ONLY when possible,
-        or best_bid as aggressive maker if cfg.adverse_sell_at_bid.
+        BUG-033: After max FOK attempts, use POST_ONLY reason (GTC order).
+        BUG-034: Price floor — never sell below avg_cost - max_loss_per_share.
         """
         intents = []
         inv = self.market.inventory
         sell_up, sell_down = self._has_pending_sells(live_order_ids, order_mgr)
+        use_postonly = self._adverse_fok_attempts > self.cfg.adverse_max_fok_attempts
 
         if inv.shares_up > 0 and self.market.book_up.has_bid and not sell_up:
-            # Sell at bid (will fill immediately against resting bid)
             px = self.market.book_up.best_bid
-            if not self.cfg.adverse_sell_at_bid:
+            if not self.cfg.adverse_sell_at_bid or use_postonly:
                 px = self.market.book_up.best_bid + self.cfg.tick
+
+            # BUG-034: Price floor — don't sell at catastrophic loss
+            if inv.avg_cost_up > 0:
+                min_sell_px = inv.avg_cost_up - self.cfg.adverse_max_loss_per_share
+                if px < min_sell_px:
+                    logger.warning("adverse_sell_price_floored",
+                                   market=self.market.name, side="UP",
+                                   bid=px, floor=round(min_sell_px, 2),
+                                   avg_cost=inv.avg_cost_up)
+                    px = max(px, round(min_sell_px, 2))
+
+            reason = "adverse_sell_postonly_up" if use_postonly else "adverse_sell_up"
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
@@ -464,18 +502,32 @@ class Engine:
                 direction=Direction.SELL,
                 price=px,
                 size=inv.shares_up,
-                reason="adverse_sell_up",
+                reason=reason,
             ))
             logger.warning("adverse_emergency_sell",
                            market=self.market.name, side="UP",
                            px=px, sz=inv.shares_up,
                            avg_cost=inv.avg_cost_up,
-                           loss=round((px - inv.avg_cost_up) * inv.shares_up, 4))
+                           loss=round((px - inv.avg_cost_up) * inv.shares_up, 4),
+                           mode="POST_ONLY" if use_postonly else "FOK",
+                           attempt=self._adverse_fok_attempts)
 
         if inv.shares_down > 0 and self.market.book_down.has_bid and not sell_down:
             px = self.market.book_down.best_bid
-            if not self.cfg.adverse_sell_at_bid:
+            if not self.cfg.adverse_sell_at_bid or use_postonly:
                 px = self.market.book_down.best_bid + self.cfg.tick
+
+            # BUG-034: Price floor
+            if inv.avg_cost_down > 0:
+                min_sell_px = inv.avg_cost_down - self.cfg.adverse_max_loss_per_share
+                if px < min_sell_px:
+                    logger.warning("adverse_sell_price_floored",
+                                   market=self.market.name, side="DOWN",
+                                   bid=px, floor=round(min_sell_px, 2),
+                                   avg_cost=inv.avg_cost_down)
+                    px = max(px, round(min_sell_px, 2))
+
+            reason = "adverse_sell_postonly_down" if use_postonly else "adverse_sell_down"
             intents.append(Intent(
                 type=IntentType.PLACE_ORDER,
                 market_name=self.market.name,
@@ -483,13 +535,15 @@ class Engine:
                 direction=Direction.SELL,
                 price=px,
                 size=inv.shares_down,
-                reason="adverse_sell_down",
+                reason=reason,
             ))
             logger.warning("adverse_emergency_sell",
                            market=self.market.name, side="DOWN",
                            px=px, sz=inv.shares_down,
                            avg_cost=inv.avg_cost_down,
-                           loss=round((px - inv.avg_cost_down) * inv.shares_down, 4))
+                           loss=round((px - inv.avg_cost_down) * inv.shares_down, 4),
+                           mode="POST_ONLY" if use_postonly else "FOK",
+                           attempt=self._adverse_fok_attempts)
 
         return intents
 

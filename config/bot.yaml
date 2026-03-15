@@ -99,6 +99,11 @@ cooldown_s: 1800               # 30min de cooldown apos kill
 adverse_loss_threshold: -0.50  # USDC: vende tudo se unrealized loss > $0.50
 adverse_sell_at_bid: true      # vende no bid para preencher rapido
 
+# === BUG-033/034/035: Adverse sell improvements ===
+adverse_max_fok_attempts: 3    # max FOK tentativas antes de POST_ONLY fallback
+adverse_cooldown_s: 60         # 60s cooldown apos adverse sell (evita re-compra imediata)
+adverse_max_loss_per_share: 0.12  # max perda por share no emergency sell (floor de preco)
+
 # === BUG-025: Price floor — para de comprar tokens resolvidos ===
 min_buy_price: 0.15            # nao compra token com bid < 0.15 (mercado ja resolveu)
 

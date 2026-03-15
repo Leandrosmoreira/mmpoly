@@ -80,6 +80,11 @@ class InventoryTracker:
                     "avg_cost_up": inv.avg_cost_up,
                     "avg_cost_down": inv.avg_cost_down,
                     "realized_pnl": inv.realized_pnl,
+                    # BUG-036: Persist side loss tracking for crash recovery
+                    "side_realized_up": inv.side_realized_up,
+                    "side_realized_down": inv.side_realized_down,
+                    "buy_blocked_up": inv.buy_blocked_up,
+                    "buy_blocked_down": inv.buy_blocked_down,
                 }
             self._snapshot_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self._snapshot_path, "w") as f:
@@ -108,6 +113,11 @@ class InventoryTracker:
                 inv.avg_cost_up = data.get("avg_cost_up", 0)
                 inv.avg_cost_down = data.get("avg_cost_down", 0)
                 inv.realized_pnl = data.get("realized_pnl", 0)
+                # BUG-036: Restore side loss tracking
+                inv.side_realized_up = data.get("side_realized_up", 0)
+                inv.side_realized_down = data.get("side_realized_down", 0)
+                inv.buy_blocked_up = data.get("buy_blocked_up", False)
+                inv.buy_blocked_down = data.get("buy_blocked_down", False)
             logger.info("inventory_restored",
                         age_s=round(age),
                         markets=len(snap.get("markets", {})))

@@ -77,6 +77,10 @@ class ErrorCode(str, Enum):
     SELL_FAIL_LIMIT = "E2018"         # BUG-032: repeated approval-sell failures → phantom
     APPROVAL_COOLDOWN_ACTIVE = "E2019"  # BUG-032: approval retry skipped (cooldown)
     ADVERSE_SELL_FOK = "E2020"       # BUG-033: adverse emergency sell via FOK
+    ADVERSE_FOK_EXHAUSTED = "E2021"  # BUG-033: FOK attempts exhausted, switching POST_ONLY
+    ADVERSE_SELL_FLOORED = "E2022"   # BUG-034: sell price floored at max_loss_per_share
+    ADVERSE_COOLDOWN = "E2023"       # BUG-035: adverse cooldown active, blocking re-entry
+    BUY_BLOCKED_NOT_PERSISTED = "E3006"  # BUG-036: buy_blocked state lost on restart
 
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"
