@@ -5,7 +5,7 @@ sold at 0.27), it should NOT immediately re-buy on that side. This
 prevents the "death spiral": buy → sell at loss → buy → sell at loss.
 
 The fix tracks cumulative realized PnL per side. When side_realized
-drops below -$0.10, buy_blocked_{side} is set to True, preventing
+drops below -$0.50, buy_blocked_{side} is set to True, preventing
 any new BUY orders on that side for the remainder of the market.
 """
 
@@ -45,7 +45,7 @@ class TestSideLossTracking:
         assert inv.buy_blocked_up is False
 
     def test_small_loss_does_not_block(self):
-        """Loss < -$0.10 threshold → no block yet."""
+        """Loss < -$0.50 threshold → no block yet."""
         inv = Inventory(shares_down=5.0, avg_cost_down=0.50)
 
         # Sell DOWN at 0.49 → loss = (0.49 - 0.50) * 5 = -0.05

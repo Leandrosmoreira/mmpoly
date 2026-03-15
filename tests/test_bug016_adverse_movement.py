@@ -126,9 +126,9 @@ class TestAdverseMovementDetection:
         sell_intents = [i for i in intents if i.type == IntentType.PLACE_ORDER
                         and i.direction == Direction.SELL]
         assert len(sell_intents) > 0, "Should trigger emergency sell on adverse move"
-        # BUG-034: Price is floored at avg_cost - max_loss_per_share (0.70 - 0.12 = 0.58)
+        # BUG-034: Price is floored at avg_cost - max_loss_per_share (0.70 - 0.05 = 0.65)
         # Not selling at catastrophic bid of 0.15
-        assert sell_intents[0].price == 0.58
+        assert sell_intents[0].price == 0.65
 
     def test_no_trigger_when_profitable(self):
         """No emergency sell when position is profitable."""
@@ -177,8 +177,8 @@ class TestAdverseMovementDetection:
         sell_intents = [i for i in intents if i.type == IntentType.PLACE_ORDER
                         and i.direction == Direction.SELL]
         assert len(sell_intents) > 0
-        # BUG-034: Price floored at avg_cost - max_loss_per_share (0.70 - 0.12 = 0.58)
-        assert sell_intents[0].price == 0.58
+        # BUG-034: Price floored at avg_cost - max_loss_per_share (0.70 - 0.05 = 0.65)
+        assert sell_intents[0].price == 0.65
 
     def test_threshold_boundary(self):
         """Exactly at threshold → should NOT trigger (need to exceed)."""

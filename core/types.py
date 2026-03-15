@@ -224,7 +224,7 @@ class Inventory:
                     self.realized_pnl += delta
                     self.side_realized_up += delta
                     # BUG-026: Block re-buy if this side is losing
-                    if self.side_realized_up < -0.10:
+                    if self.side_realized_up < -0.50:
                         self.buy_blocked_up = True
                 self.shares_up = max(0, self.shares_up - sz)
         else:  # DOWN
@@ -238,7 +238,7 @@ class Inventory:
                     self.realized_pnl += delta
                     self.side_realized_down += delta
                     # BUG-026: Block re-buy if this side is losing
-                    if self.side_realized_down < -0.10:
+                    if self.side_realized_down < -0.50:
                         self.buy_blocked_down = True
                 self.shares_down = max(0, self.shares_down - sz)
 
@@ -395,13 +395,13 @@ class BotConfig:
     cooldown_s: float = 1800.0
 
     # BUG-016: Adverse movement — emergency sell when losing too much
-    adverse_loss_threshold: float = -0.50   # USDC unrealized loss to trigger emergency sell
+    adverse_loss_threshold: float = -0.20   # USDC unrealized loss to trigger emergency sell
     adverse_sell_at_bid: bool = True         # sell at bid (fast fill) vs ask-tick (slower)
 
     # BUG-033/034/035: Adverse sell improvements
     adverse_max_fok_attempts: int = 3       # max FOK attempts before switching to POST_ONLY
     adverse_cooldown_s: float = 60.0        # cooldown after adverse sell (prevents re-entry)
-    adverse_max_loss_per_share: float = 0.12  # max loss per share on emergency sell
+    adverse_max_loss_per_share: float = 0.05  # max loss per share on emergency sell
 
     # BUG-025: Minimum price to buy a token — stop buying resolved markets
     min_buy_price: float = 0.15             # don't buy tokens below this price (market resolved)

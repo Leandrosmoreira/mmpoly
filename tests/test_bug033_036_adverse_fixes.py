@@ -24,11 +24,11 @@ from execution.order_manager import OrderManager
 
 def _make_cfg(**overrides) -> BotConfig:
     defaults = dict(
-        adverse_loss_threshold=-0.50,
+        adverse_loss_threshold=-0.20,
         adverse_sell_at_bid=True,
         adverse_max_fok_attempts=3,
         adverse_cooldown_s=60.0,
-        adverse_max_loss_per_share=0.12,
+        adverse_max_loss_per_share=0.05,
         t_early=600, t_mid=120, t_late=30, t_exit=15,
         min_buy_price=0.15,
         dry_run=True,
