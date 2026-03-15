@@ -24,6 +24,7 @@ from core.types import (
 log = structlog.get_logger()
 
 MIN_ORDER_SIZE = 5  # Polymarket minimum
+MIN_ORDER_VALUE = 1.0  # Polymarket minimum notional ($1)
 
 
 def clamp(v: float, lo: float, hi: float) -> float:
@@ -252,6 +253,14 @@ def compute_grid_quotes(
             px = round_price(book.best_bid - lvl * spacing)
         if px <= 0 or px >= book.best_ask:
             continue  # nivel invalido, pula
+
+        # BUG-037: Polymarket minimum notional = $1. Skip if px * size < $1.
+        notional = px * g.level_size
+        if notional < MIN_ORDER_VALUE:
+            log.info("buy_skipped_min_notional", side=side.value,
+                     px=px, sz=g.level_size, notional=round(notional, 2),
+                     min_value=MIN_ORDER_VALUE)
+            continue
 
         # Limite de posicao: nao compra alem do max (includes pending buys)
         if effective_pos + (lvl + 1) * g.level_size > cfg.max_position:
