@@ -82,6 +82,7 @@ class ErrorCode(str, Enum):
     ADVERSE_COOLDOWN = "E2023"       # BUG-035: adverse cooldown active, blocking re-entry
     BUY_BLOCKED_NOT_PERSISTED = "E3006"  # BUG-036: buy_blocked state lost on restart
     MIN_NOTIONAL_SKIPPED = "E2024"    # BUG-037: order notional < $1, skipped
+    BUY_BLOCKED_CANCEL = "E2025"     # BUG-038: buy_blocked → cancel existing BUY orders
 
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"

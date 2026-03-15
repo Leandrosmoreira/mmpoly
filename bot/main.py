@@ -919,6 +919,37 @@ class GabaBot:
         # Cancel-on-fill: get intents but DON'T execute here
         cancel_intents = self.order_mgr.on_fill(fill) or []
 
+        # BUG-038: When buy_blocked activates after a SELL fill, immediately
+        # cancel all BUY orders on that side. The selective cancel would do this
+        # on the next tick, but existing BUY orders can fill in the gap.
+        inv = self.inventory.get(fill.market_name)
+        if fill.direction == Direction.SELL:
+            blocked_side = None
+            if fill.side == Side.UP and inv.buy_blocked_up:
+                blocked_side = Side.UP
+            elif fill.side == Side.DOWN and inv.buy_blocked_down:
+                blocked_side = Side.DOWN
+
+            if blocked_side:
+                for oid in list(self.order_mgr._orders):
+                    o = self.order_mgr._orders.get(oid)
+                    if o is None:
+                        continue
+                    if (o.market_name == fill.market_name
+                            and o.side == blocked_side
+                            and o.direction == Direction.BUY):
+                        cancel_intents.append(Intent(
+                            type=IntentType.CANCEL_ORDER,
+                            market_name=fill.market_name,
+                            order_id=oid,
+                            reason="buy_blocked_cancel",
+                        ))
+                logger.info("buy_blocked_cancel_all",
+                            market=fill.market_name,
+                            side=blocked_side.value,
+                            cancel_count=len([i for i in cancel_intents
+                                              if i.reason == "buy_blocked_cancel"]))
+
         # Request requote on the engine for this market
         engine = self.engines.get(fill.market_name)
         if engine:
