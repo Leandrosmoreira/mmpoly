@@ -43,6 +43,8 @@ class TestFOKResidualSell:
         client._client = MagicMock()
         client._approved_tokens = set()
         client._last_place_error = ""
+        client._sell_fail_count = {}
+        client._last_approval_ts = {}
 
         # Mock create_order and post_order to succeed
         client._client.create_order = MagicMock(return_value="signed_order")

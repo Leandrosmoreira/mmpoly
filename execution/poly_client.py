@@ -49,6 +49,8 @@ class PolyClient:
         self._funder: str = ""
         self._last_place_error: str = ""  # "no_balance" when exchange rejects SELL
         self._approved_tokens: set[str] = set()  # BUG-020: tokens already approved
+        self._sell_fail_count: dict[str, int] = {}  # BUG-032: consecutive allowance failures per token
+        self._last_approval_ts: dict[str, float] = {}  # BUG-032: cooldown between approval attempts
 
     def connect(self):
         """Initialize CLOB client with credentials from env.
@@ -174,7 +176,11 @@ class PolyClient:
                 ),
                 timeout=10.0,
             )
+            # BUG-032: Always add to cache regardless of response.
+            # The SDK may return empty string even on success.
+            # We track sell failures separately to detect phantom inventory.
             self._approved_tokens.add(token_id)
+            self._last_approval_ts[token_id] = time.time()
             logger.info("token_approved", token_id=token_id[:16] + "...", resp=resp)
             return True
         except asyncio.TimeoutError:
@@ -242,11 +248,12 @@ class PolyClient:
                         error_code=ErrorCode.RESIDUAL_SELL_FOK)
 
         # BUG-028: Exit dump — use FOK for all exit sells to guarantee fill
-        if intent.reason.startswith("exit_dump") and intent.direction == Direction.SELL:
+        # BUG-033: Adverse emergency sells — also FOK for fast fill
+        if (intent.reason.startswith("exit_dump") or intent.reason.startswith("adverse_sell")) and intent.direction == Direction.SELL:
             order_type = OrderType.FOK
-            logger.info("exit_dump_fok",
+            logger.info("urgent_sell_fok",
                         market=intent.market_name, side=intent.side,
-                        px=intent.price, sz=intent.size)
+                        px=intent.price, sz=intent.size, reason=intent.reason)
 
         try:
             poly_side = BUY if intent.direction == Direction.BUY else SELL
@@ -267,6 +274,9 @@ class PolyClient:
 
             if resp and resp.get("success"):
                 order_id = resp.get("orderID", resp.get("order_id", ""))
+                # BUG-032: Reset sell failure counter on success
+                if intent.direction == Direction.SELL:
+                    self._sell_fail_count.pop(token_id, None)
                 live = LiveOrder(
                     order_id=order_id,
                     market_name=intent.market_name,
@@ -300,23 +310,53 @@ class PolyClient:
                     # The Polymarket error "not enough balance / allowance"
                     # is ambiguous — for SELL it means token not approved.
                     self._last_place_error = "allowance"
-                    # BUG-024: Always retry approval on SELL failure (once).
-                    # The cache may be stale (approval added at registration
-                    # but on-chain tx not yet propagated). Invalidate and retry.
-                    if not _retry:
-                        if token_id in self._approved_tokens:
-                            self._approved_tokens.discard(token_id)
-                            logger.warning("approval_cache_invalidated",
-                                          token_id=token_id[:16] + "...",
-                                          market=intent.market_name,
-                                          reason="sell_failed_despite_cached_approval")
-                        logger.warning("auto_approve_retry",
+
+                    # BUG-032: Track consecutive sell failures per token.
+                    # After MAX_SELL_RETRIES failures where approval "succeeds"
+                    # but sell still fails, conclude inventory is phantom.
+                    fail_count = self._sell_fail_count.get(token_id, 0) + 1
+                    self._sell_fail_count[token_id] = fail_count
+
+                    if fail_count > 3:
+                        # Repeated failures: approval works but sell always fails.
+                        # This means the bot does NOT hold these tokens.
+                        self._last_place_error = "no_balance"  # Signal phantom inventory
+                        logger.error("sell_fail_limit_reached",
+                                     token_id=token_id[:16] + "...",
+                                     market=intent.market_name,
+                                     side=intent.side,
+                                     fail_count=fail_count,
+                                     error_code=ErrorCode.PHANTOM_INVENTORY_ZEROED,
+                                     msg="Approval succeeds but SELL always fails — phantom inventory")
+                        return None
+
+                    # BUG-032: Cooldown between approval attempts (30s).
+                    # Prevents API spam when approval doesn't work.
+                    last_ts = self._last_approval_ts.get(token_id, 0)
+                    if _retry or (time.time() - last_ts < 30.0):
+                        # Already retried this cycle, or retried recently — skip
+                        logger.info("approval_retry_skipped",
+                                    token_id=token_id[:16] + "...",
+                                    market=intent.market_name,
+                                    fail_count=fail_count,
+                                    cooldown_remaining=max(0, round(30.0 - (time.time() - last_ts), 1)))
+                        return None
+
+                    # BUG-024: Invalidate cache and retry approval (once per cooldown).
+                    if token_id in self._approved_tokens:
+                        self._approved_tokens.discard(token_id)
+                        logger.warning("approval_cache_invalidated",
                                       token_id=token_id[:16] + "...",
                                       market=intent.market_name,
-                                      side=intent.side)
-                        approved = await self.approve_token(token_id)
-                        if approved:
-                            return await self.place_order(intent, token_id, _retry=True)
+                                      reason="sell_failed_despite_cached_approval")
+                    logger.warning("auto_approve_retry",
+                                  token_id=token_id[:16] + "...",
+                                  market=intent.market_name,
+                                  side=intent.side,
+                                  attempt=fail_count)
+                    approved = await self.approve_token(token_id)
+                    if approved:
+                        return await self.place_order(intent, token_id, _retry=True)
                 else:
                     # BUG-022: BUY failing = insufficient USDC collateral.
                     # Don't try token approval — the wallet just doesn't

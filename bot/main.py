@@ -702,9 +702,12 @@ class GabaBot:
                 # Re-read fresh book to catch TOCTOU race (book moved
                 # between quoter price calc and now).
                 # BUG-023: Skip guard for FOK sells (residual < 5 shares)
+                # BUG-033: Skip guard for urgent sells (exit_dump, adverse_sell)
                 # — they SHOULD cross the book to fill immediately.
                 is_fok_sell = (intent.direction == Direction.SELL
-                               and 0 < intent.size < MIN_ORDER_SIZE)
+                               and (0 < intent.size < MIN_ORDER_SIZE
+                                    or intent.reason.startswith("exit_dump")
+                                    or intent.reason.startswith("adverse_sell")))
                 book = (market.book_up if intent.side == Side.UP
                         else market.book_down)
                 if book.is_valid and intent.price is not None and not is_fok_sell:
@@ -761,16 +764,34 @@ class GabaBot:
                     # NOT from live fills in this session. Live fills are confirmed real
                     # via cancel-matched detection. "allowance" errors mean the token exists
                     # but needs contract approval — never zero for those.
+                    #
+                    # BUG-032: After 3+ consecutive approval-sell failures,
+                    # poly_client sets _last_place_error="no_balance" to signal
+                    # phantom inventory — zero even if there were live fills.
                     if self.poly_client._last_place_error == "allowance":
                         logger.warning("sell_allowance_error",
                                        market=intent.market_name,
                                        side=intent.side.value,
-                                       msg="Token needs approval, shares are real — NOT zeroing")
+                                       msg="Token needs approval — retrying with cooldown")
                     elif self._has_live_fills(intent.market_name, intent.side):
-                        logger.warning("zero_side_blocked",
-                                       market=intent.market_name,
-                                       side=intent.side.value,
-                                       msg="Shares from live fills — NOT zeroing phantom")
+                        # BUG-032: Check if repeated approval failures triggered phantom detection
+                        market = self.markets.get(intent.market_name)
+                        tok = (market.token_up if intent.side == Side.UP else market.token_down) if market else ""
+                        fail_count = self.poly_client._sell_fail_count.get(tok, 0)
+                        if fail_count > 3:
+                            logger.warning("phantom_inventory_zeroed_forced",
+                                           market=intent.market_name,
+                                           side=intent.side.value,
+                                           fail_count=fail_count,
+                                           error_code=ErrorCode.PHANTOM_INVENTORY_ZEROED,
+                                           msg="Approval OK but sell always fails — zeroing phantom")
+                            self.inventory.zero_side(intent.market_name, intent.side)
+                            self.poly_client._sell_fail_count.pop(tok, None)
+                        else:
+                            logger.warning("zero_side_blocked",
+                                           market=intent.market_name,
+                                           side=intent.side.value,
+                                           msg="Shares from live fills — NOT zeroing phantom")
                     else:
                         # No live fills: inventory came from snapshot, likely phantom
                         self.inventory.zero_side(intent.market_name, intent.side)

@@ -34,6 +34,8 @@ class TestBuyVsSellErrorHandling:
         client._client = MagicMock()
         client._approved_tokens = set()
         client._last_place_error = ""
+        client._sell_fail_count = {}
+        client._last_approval_ts = {}
 
         # Make create_order + post_order raise the ambiguous error
         def raise_balance_error(*args, **kwargs):

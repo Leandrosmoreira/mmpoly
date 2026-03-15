@@ -74,6 +74,10 @@ class ErrorCode(str, Enum):
     BUYS_BLOCKED_SIDE_LOSS = "E2016" # BUG-026: buys blocked — side already lost money
     BUYS_BLOCKED_PRICE_FLOOR = "E2017"  # BUG-025: buys blocked — token price below floor
 
+    SELL_FAIL_LIMIT = "E2018"         # BUG-032: repeated approval-sell failures → phantom
+    APPROVAL_COOLDOWN_ACTIVE = "E2019"  # BUG-032: approval retry skipped (cooldown)
+    ADVERSE_SELL_FOK = "E2020"       # BUG-033: adverse emergency sell via FOK
+
     # --- Bot lifecycle (6xxx) ---
     TICK_ERROR = "E6001"
     SCANNER_ERROR = "E6002"
